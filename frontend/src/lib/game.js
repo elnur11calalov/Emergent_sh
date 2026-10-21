@@ -15,6 +15,7 @@ export const mergeUsedLetters = (used, guess, result) => {
 
 // Maps a physical keyboard event to a game key, or null
 export const keyFromEvent = (e) => {
+  if (e.ctrlKey || e.metaKey || e.altKey) return null;
   if (e.key === "Enter") return "ENTER";
   if (e.key === "Backspace") return "BACKSPACE";
   const ch = e.key.toLocaleUpperCase("az");

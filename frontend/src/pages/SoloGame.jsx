@@ -138,7 +138,7 @@ const SoloGame = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-blue-950 to-cyan-950 p-4 pb-28">
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-blue-950 to-cyan-950 p-4 pb-40">
       <div className="max-w-3xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <Button

@@ -517,6 +517,21 @@ async def get_daily_leaderboard():
     return players[:50]
 
 
+@api_router.get("/daily/status")
+async def get_daily_status(player_name: str):
+    today = datetime.now(timezone.utc).date().isoformat()
+    doc = await db.daily_games.find_one({"player_name": player_name, "date": today}, {"_id": 0})
+    if not doc:
+        return {"attempts": [], "completed": False, "won": False, "points": 0, "correct_word": None}
+    return {
+        "attempts": doc.get("attempts", []),
+        "completed": doc.get("completed", False),
+        "won": doc.get("won", False),
+        "points": doc.get("points", 0),
+        "correct_word": get_daily_word() if doc.get("completed") else None
+    }
+
+
 # ==================== HOST PANEL ====================
 @api_router.get("/host/active-rooms")
 async def get_active_rooms(host_code: str):

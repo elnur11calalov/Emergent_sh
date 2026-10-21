@@ -1,0 +1,47 @@
+{
+  "summary": "Frontend-only E2E test of the rebuilt CoolabSchool Wordle on the preview URL, at desktop (1920x1080) and mobile (390x844), with separate browser contexts for host and players. PASSED: Home loads the real app (no Emergent splash) with the logo, 4 mode cards, the Host Panel button and the kid mascot (mood 'wave' plus speech bubble). Solo: on-screen keys (letters, backspace, enter) and physical keys work, tiles are colored, mascot goes happy/sad then back to idle after about 3s, 'lose' after 6 wrong guesses, correct-word shown, restart resets. Daily: countdown ticks, mascot reacts, the same name in the same day is blocked. Create Room shows only the host name and room name inputs and lands in host-game-view. Join via the second context works with a lowercase code and shows waiting-screen plus mascot 'Host sözü hazırlayır...'. Host start -> the player sees the game within ~0.3-2s. Host live attempts show the player's colored guesses. A win on the 2nd guess gives 1800 and a 1st-try win gives 2500 in the leaderboard. Settings modal preselects the current mode, rush saves and room-mode shows Rush. In rush mode the first winner ends the round and the other player goes back to waiting. End round works. Close room (confirm dialog) works. Chat works in both directions, and typing in chat does not type into the board. Host Panel: wrong password rejected, Elnur logs in, all 3 tabs have data, the room-card modal shows players and points, modal-close works. Mascot is pointer-events-none and covers no keyboard keys on mobile (checked in Solo and Room). Bugs found: 1 medium integration bug (players not notified when the room is closed), 1 medium daily-mode bug (no resume after reload, found by reading the code and the backend; not reproduced in the browser), and several minor UX/design issues.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/daily/guess", "issue": "There is no read-only endpoint for a player's daily status or attempts, so the frontend cannot restore progress or block a replay before the first guess."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "DailyGame", "issue": "A replay with the same name is only blocked after the user types and submits a full guess. That guess is shown uncolored on the board before 'Bu gün artıq oynadınız!' appears. Should be blocked upfront.", "selector": "[data-testid='start-daily-button']", "priority": "LOW"},
+      {"component": "DailyGame", "issue": "Reloading mid-game shows an empty board, but the backend keeps the earlier attempts (e.g. after 3 guesses, the game ends as a loss after only 3 more visible guesses). Found by code review and backend logic; not reproduced in the browser.", "selector": "[data-testid='game-board']", "priority": "MEDIUM"},
+      {"component": "RoomView (player)", "issue": "When a rush winner ends the round (or the host ends a standard round), the player view switches straight to waiting-screen. The mascot is forced to idle with 'Host sözü hazırlayır...', so the 'win' mood and the round result are never visible.", "selector": "[data-testid='kid-mascot']", "priority": "LOW"}
+    ],
+    "integration_issues": [
+      {"flow": "Host closes room", "issue": "Players already in the room are not notified. They stay on waiting-screen forever. GET /api/rooms/{code} still returns 200 with status 'closed', and RoomView.refresh only redirects on 404. Reproduced: host closed room V809L3, and after 3s the player was still on /room/V809L3 showing 'Host sözü hazırlayır...'.", "affected_selectors": ["[data-testid='waiting-screen']", "[data-testid='close-room-button']"]}
+    ],
+    "design_issues": [
+      {"screen": "Home (mobile 390px)", "issues": ["The header (logo plus the 'CoolabSchool' title) is wider than the screen: documentElement.scrollWidth is 397 vs 390, the logo starts at x=-10 and the title is cut off on the right. Reduce the title font size or the logo size on small screens, or let the header wrap."]},
+      {"screen": "RoomView (mobile)", "issues": ["The mascot covers the 'Oyunçular' panel heading and the first player row at the bottom-left. Cosmetic only, because it does not block clicks."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "RoomView.refresh: if r.data.status === 'closed' (for non-hosts), show a toast like 'Oda bağlandı' and navigate('/'); also stop polling.",
+    "Daily: restore today's attempts for the player name (add GET /api/daily/status?player_name= or similar), and block a replay as soon as start-daily-button is pressed.",
+    "RoomView player: keep showing the last round result (won/lost, points, and the word once the round has ended) and the mascot's 'win'/'lose' mood for a few seconds before switching to the waiting screen.",
+    "Home mobile: fix the header overflow (scrollWidth 397 > 390).",
+    "Optional: keyFromEvent should ignore events with ctrlKey/metaKey/altKey so shortcuts like Ctrl+R or Cmd+C don't type letters into the board.",
+    "Optional: host state comes from location.state only, so a host refresh on /room/{code} redirects to /join-room and the host loses control of the room. Persist host/player identity in sessionStorage. Host Panel login is also lost on reload."
+  ],
+  "critical_code_review_comments": [
+    "RoomView.jsx: the closed-room status is not handled (see the integration issue above).",
+    "RoomView.jsx/DailyGame.jsx: identity is kept only in memory or router state, so it is lost on reload (room host/player, daily progress, host panel auth).",
+    "CreateRoom.jsx hardcodes HOST_CODE='Elnur' in the frontend bundle (as requested by the user). Note that this makes the host code effectively public.",
+    "No word validation is done before guessing: any 5 letters such as ZZZZZ are accepted, and /api/words/validate exists but is unused. This may be intentional, since the dictionary is out of scope.",
+    "RoomView.jsx is 502 lines. Consider moving ChatPanel, LeaderboardPanel, SettingsModal, HostGameView and PlayerGameView into components/."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not tested (frontend-only request)", "frontend": "~92% (all 11 requested flows work; 1 medium integration bug, plus UX/design issues)"},
+  "test_credentials": "Host code Elnur from /app/memory/test_credentials.md - works",
+  "seed_data_creation": "Created TEST_ rooms (1SL2JT, C1MGI6, V809L3 closed, BGOVO2 closed), TEST_P1/TEST_P2 players, TEST_Solo* solo games and a TEST_Daily_<ts> daily entry for today.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Join page selectors: player-name-input, room-code-input, join-button (NOT join-room-button). The host room view needs router state (isHost), so create the room through the UI. A player context can be driven via the join UI, and the game can be started via the API: POST /api/rooms/{code}/set-word?word=X&host_code=Elnur, then POST /api/rooms/{code}/start-game?host_code=Elnur. Playwright keyboard.type() does not fire keydown for Azerbaijani characters (Ə Ç ...) - this is a test artifact; dispatching KeyboardEvent('keydown',{key:'ə'}) works. Retest after fixes: player redirect on room close, daily resume/upfront block, and the mobile home header overflow.",
+  "rca of the issue": "Room close: the backend sets status='closed' but does not delete the room, so GET /api/rooms/{code} keeps returning 200. RoomView.refresh only handles 404, so polling never notices the closed status and players are never redirected."
+}

@@ -42,9 +42,14 @@ const RoomView = () => {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const playerName = location.state?.playerName;
-  const isHost = location.state?.isHost === true;
-  const hostCode = location.state?.hostCode || "";
+  // Identity survives page reloads via sessionStorage
+  const storageKey = `room:${roomCode}`;
+  const identity = location.state?.playerName
+    ? location.state
+    : JSON.parse(sessionStorage.getItem(storageKey) || "null") || {};
+  const playerName = identity.playerName;
+  const isHost = identity.isHost === true;
+  const hostCode = identity.hostCode || "";
 
   const [room, setRoom] = useState(null);
   const [players, setPlayers] = useState([]);
@@ -64,8 +69,12 @@ const RoomView = () => {
   const prevRoundRef = useRef(null);
 
   useEffect(() => {
-    if (!playerName) navigate('/join-room');
-  }, [playerName, navigate]);
+    if (!playerName) {
+      navigate('/join-room');
+      return;
+    }
+    sessionStorage.setItem(storageKey, JSON.stringify({ playerName, isHost, hostCode }));
+  }, [playerName, isHost, hostCode, storageKey, navigate]);
 
   const refresh = useCallback(async () => {
     try {
@@ -75,6 +84,12 @@ const RoomView = () => {
         axios.get(`${API}/rooms/${roomCode}/leaderboard`),
         axios.get(`${API}/chat/${roomCode}`)
       ]);
+      if (r.data.status === "closed" && !isHost) {
+        sessionStorage.removeItem(storageKey);
+        toast.info("Host odanı bağladı");
+        navigate('/');
+        return;
+      }
       setRoom(r.data);
       setPlayers(p.data);
       setLeaderboard(l.data);
@@ -91,7 +106,7 @@ const RoomView = () => {
         navigate('/');
       }
     }
-  }, [roomCode, navigate, kidReset]);
+  }, [roomCode, navigate, kidReset, isHost, storageKey]);
 
   useEffect(() => {
     refresh();
@@ -107,6 +122,8 @@ const RoomView = () => {
   const myAttempts = me?.current_attempts || [];
   const myCompleted = me?.current_completed || false;
   const canType = !isHost && !myCompleted && room?.game_active && activeTab === "game";
+  const lastRoundWon = myAttempts.length > 0 && myAttempts[myAttempts.length - 1].result.every((r) => r === "correct");
+  const waitingMood = myAttempts.length ? (lastRoundWon ? "win" : "lose") : "idle";
 
   const submitGuess = useCallback(async () => {
     if (currentGuess.length !== 5) {
@@ -221,7 +238,7 @@ const RoomView = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-950 p-3 md:p-4 pb-28">
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-950 p-3 md:p-4 pb-40">
       <div className="max-w-7xl mx-auto">
         <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
           <Button data-testid="back-button" onClick={() => navigate('/')} size="sm" className="bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-full">
@@ -268,7 +285,7 @@ const RoomView = () => {
                 {isHost ? (
                   <HostGameView room={room} players={players} hostWord={hostWord} setHostWord={setHostWord} onStart={handleStart} onEndRound={handleEndRound} />
                 ) : (
-                  <PlayerGameView room={room} myAttempts={myAttempts} myCompleted={myCompleted} currentGuess={currentGuess} usedLetters={usedLetters} onKeyPress={handleKeyPress} />
+                  <PlayerGameView room={room} myAttempts={myAttempts} myCompleted={myCompleted} lastRoundWon={lastRoundWon} currentGuess={currentGuess} usedLetters={usedLetters} onKeyPress={handleKeyPress} />
                 )}
               </div>
             )}
@@ -294,7 +311,12 @@ const RoomView = () => {
         )}
       </AnimatePresence>
 
-      {!isHost && <KidMascot mood={room.game_active ? mood : "idle"} message={room.game_active ? undefined : "Host sözü hazırlayır..."} />}
+      {!isHost && (
+        <KidMascot
+          mood={room.game_active ? mood : waitingMood}
+          message={room.game_active || myAttempts.length ? undefined : "Host sözü hazırlayır..."}
+        />
+      )}
     </div>
   );
 };
@@ -469,10 +491,18 @@ const HostGameView = ({ room, players, hostWord, setHostWord, onStart, onEndRoun
   );
 };
 
-const PlayerGameView = ({ room, myAttempts, myCompleted, currentGuess, usedLetters, onKeyPress }) => {
+const PlayerGameView = ({ room, myAttempts, myCompleted, lastRoundWon, currentGuess, usedLetters, onKeyPress }) => {
   if (!room.game_active) {
     return (
-      <div className="text-center py-12" data-testid="waiting-screen">
+      <div className="text-center py-8" data-testid="waiting-screen">
+        {myAttempts.length > 0 && (
+          <div className={`mb-6 rounded-xl border p-4 ${lastRoundWon ? 'bg-emerald-950/40 border-emerald-500/30' : 'bg-white/5 border-white/10'}`} data-testid="last-round-result">
+            <p className="text-white font-bold text-lg mb-3">
+              Raund #{room.round_number}: {lastRoundWon ? "Qalib gəldin!" : "Bu dəfə alınmadı"}
+            </p>
+            <div className="flex justify-center"><MiniAttempts attempts={myAttempts} /></div>
+          </div>
+        )}
         <Hourglass className="w-14 h-14 text-indigo-300 mx-auto mb-4 animate-pulse" />
         <h2 className="text-2xl font-bold text-white mb-2">Host sözü hazırlayır...</h2>
         <p className="text-white/60">Oyun tezliklə başlayacaq</p>

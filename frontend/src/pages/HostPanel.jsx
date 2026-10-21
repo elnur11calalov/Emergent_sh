@@ -53,7 +53,7 @@ const HostLogin = ({ onSuccess, onBack }) => {
 
 const HostPanel = () => {
   const navigate = useNavigate();
-  const [authed, setAuthed] = useState(false);
+  const [authed, setAuthed] = useState(() => sessionStorage.getItem("hostAuthed") === "1");
   const [activeTab, setActiveTab] = useState("active");
   const [activeRooms, setActiveRooms] = useState([]);
   const [historyRooms, setHistoryRooms] = useState([]);
@@ -82,7 +82,16 @@ const HostPanel = () => {
     return () => clearInterval(id);
   }, [authed]);
 
-  if (!authed) return <HostLogin onSuccess={() => setAuthed(true)} onBack={() => navigate('/')} />;
+  const login = () => {
+    sessionStorage.setItem("hostAuthed", "1");
+    setAuthed(true);
+  };
+  const logout = () => {
+    sessionStorage.removeItem("hostAuthed");
+    setAuthed(false);
+  };
+
+  if (!authed) return <HostLogin onSuccess={login} onBack={() => navigate('/')} />;
 
   // room-history contains players; use it for the detail modal so it stays live
   const selectedRoom = historyRooms.find((r) => r.room_code === selectedCode);
@@ -103,7 +112,7 @@ const HostPanel = () => {
           <h1 className="text-2xl md:text-3xl font-bold text-white flex items-center gap-2" style={{ fontFamily: 'Outfit, sans-serif' }}>
             <Crown className="w-7 h-7 text-yellow-400" /> Host Panel
           </h1>
-          <Button data-testid="logout-button" onClick={() => setAuthed(false)} className="bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-full">
+          <Button data-testid="logout-button" onClick={logout} className="bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-full">
             Çıxış
           </Button>
         </div>

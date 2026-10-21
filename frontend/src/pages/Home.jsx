@@ -18,14 +18,14 @@ const Home = () => {
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-950 flex items-center justify-center p-4">
       <div className="max-w-6xl w-full">
         <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="text-center mb-16">
-          <div className="flex items-center justify-center mb-4 gap-4">
+          <div className="flex items-center justify-center mb-4 gap-3 md:gap-4 flex-wrap">
             <img
               src="https://i.imgur.com/d63Fsdo.png"
               alt="CoolabSchool logo"
               data-testid="coolabschool-logo"
-              className="w-20 h-20 md:w-24 md:h-24 rounded-2xl object-contain shadow-2xl border-4 border-white/20 bg-white/5 transform -rotate-6 hover:rotate-0 transition-transform duration-300"
+              className="w-14 h-14 sm:w-20 sm:h-20 md:w-24 md:h-24 rounded-2xl object-contain shadow-2xl border-4 border-white/20 bg-white/5 transform -rotate-6 hover:rotate-0 transition-transform duration-300"
             />
-            <h1 className="text-5xl md:text-7xl font-bold text-white" style={{ fontFamily: 'Outfit, sans-serif' }}>
+            <h1 className="text-4xl sm:text-5xl md:text-7xl font-bold text-white" style={{ fontFamily: 'Outfit, sans-serif' }}>
               CoolabSchool
             </h1>
           </div>

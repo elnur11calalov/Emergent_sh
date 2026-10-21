@@ -62,12 +62,28 @@ const DailyGame = () => {
 
   useEffect(() => { fetchLeaderboard(); }, [fetchLeaderboard]);
 
-  const startGame = () => {
-    if (!playerName.trim()) {
+  // Restores today's progress for this name (or shows the finished result)
+  const startGame = async () => {
+    const name = playerName.trim();
+    if (!name) {
       toast.error("Adınızı daxil edin");
       return;
     }
-    setStarted(true);
+    try {
+      const { data } = await axios.get(`${API}/daily/status`, { params: { player_name: name } });
+      setAttempts(data.attempts);
+      setUsedLetters(data.attempts.reduce((acc, a) => mergeUsedLetters(acc, a.guess, a.result), {}));
+      if (data.completed) {
+        setGameOver(true);
+        setWon(data.won);
+        setPoints(data.points);
+        setCorrectWord(data.correct_word || "");
+        toast.info("Bu gün artıq oynadınız!");
+      }
+      setStarted(true);
+    } catch (e) {
+      toast.error("Oyunu yükləmək mümkün olmadı");
+    }
   };
 
   const submitGuess = useCallback(async () => {
@@ -182,7 +198,7 @@ const DailyGame = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-orange-950 to-red-950 p-4 pb-28">
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-orange-950 to-red-950 p-4 pb-40">
       <div className="max-w-3xl mx-auto">
         <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
           <Button
@@ -232,7 +248,7 @@ const DailyGame = () => {
           </div>
         )}
       </div>
-      <KidMascot mood={kid.mood} />
+      <KidMascot mood={gameOver && kid.mood === "idle" ? (won ? "win" : "lose") : kid.mood} />
     </div>
   );
 };
