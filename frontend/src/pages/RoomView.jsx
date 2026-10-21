@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useParams, useLocation, useNavigate } from "react-router-dom";
 import axios from "axios";
 import { Button } from "../components/ui/button";
@@ -58,7 +58,6 @@ const RoomView = () => {
   const [chatInput, setChatInput] = useState("");
   const [activeTab, setActiveTab] = useState("game");
   const [currentGuess, setCurrentGuess] = useState("");
-  const [usedLetters, setUsedLetters] = useState({});
   const [hostWord, setHostWord] = useState("");
   const [showSettings, setShowSettings] = useState(false);
   const [gameMode, setGameMode] = useState("standard");
@@ -84,9 +83,9 @@ const RoomView = () => {
         axios.get(`${API}/rooms/${roomCode}/leaderboard`),
         axios.get(`${API}/chat/${roomCode}`)
       ]);
-      if (r.data.status === "closed" && !isHost) {
+      if (r.data.status === "closed") {
         sessionStorage.removeItem(storageKey);
-        toast.info("Host odanı bağladı");
+        toast.info(isHost ? "Bu oda bağlanıb" : "Host odanı bağladı");
         navigate('/');
         return;
       }
@@ -97,7 +96,6 @@ const RoomView = () => {
       if (r.data.round_number !== prevRoundRef.current) {
         prevRoundRef.current = r.data.round_number;
         setCurrentGuess("");
-        setUsedLetters({});
         kidReset();
       }
     } catch (e) {
@@ -120,6 +118,11 @@ const RoomView = () => {
 
   const me = players.find((p) => p.player_name === playerName);
   const myAttempts = me?.current_attempts || [];
+  // Keyboard colors are derived from server attempts, so they survive reloads
+  const usedLetters = useMemo(
+    () => (me?.current_attempts || []).reduce((acc, a) => mergeUsedLetters(acc, a.guess, a.result), {}),
+    [me]
+  );
   const myCompleted = me?.current_completed || false;
   const canType = !isHost && !myCompleted && room?.game_active && activeTab === "game";
   const lastRoundWon = myAttempts.length > 0 && myAttempts[myAttempts.length - 1].result.every((r) => r === "correct");
@@ -133,7 +136,6 @@ const RoomView = () => {
     try {
       const res = await axios.post(`${API}/rooms/${roomCode}/guess`, { room_code: roomCode, player_name: playerName, guess: currentGuess });
       const { result, won, completed, points_earned } = res.data;
-      setUsedLetters((prev) => mergeUsedLetters(prev, currentGuess, result));
       setCurrentGuess("");
       kidReact(result, won, completed);
       if (won) toast.success(`Təbriklər! +${points_earned} xal`);

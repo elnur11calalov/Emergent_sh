@@ -1,0 +1,32 @@
+{
+  "summary": "Iteration 2 retest of the 6 fixes from iteration_1, plus a quick regression. Backend: the new GET /api/daily/status passes 3 of 3 pytest tests (new player, missing param 422, partial then completed state, replay blocked). Frontend, run on the preview URL with separate browser contexts for host and players: all 6 fixes PASS. FIX1: host closes the room and both players are redirected to / in ~1.4s with the toast 'Host odanı bağladı'; their sessionStorage is cleared; rejoining the closed room shows 'Bu oda bağlanıb'. FIX2: Daily resume restores 2 colored rows and the keyboard colors after a reload. A finished game, after reload, shows game-result right away with the toast 'Bu gün artıq oynadınız!', mood 'lose' and no keyboard. FIX3: after host end-round, the winner sees 'Qalib gəldin!' with mood win, the loser sees 'Bu dəfə alınmadı' with mood lose, and a player with no attempts sees mood idle and 'Host sözü hazırlayır...'. In rush mode a 1st-guess winner ends the round, and the result and moods are correct for both players. A new round resets the board, the keyboard and the mood. FIX4: mobile 390px has scrollWidth 390, the logo is at x=44 and nothing overflows. FIX5: host reload keeps host-game-view and the controls; player reload stays a player; Host Panel login survives a reload; logout clears it. FIX6: Ctrl/Meta/Alt + letter types nothing, while plain keys (including 'ə') still work. Regression PASS: Solo happy, then idle after ~3s, then sad; Create Room leads to the host view; join with a lowercase code; chat works both ways; the leaderboard tab works; Host Panel wrong password is rejected, all 3 tabs have counts, the room detail modal opens and closes (via the X and via the backdrop). One new minor issue was found (see below).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/rooms/{code}/guess", "issue": "games_played only increases when a player completes (wins or uses 6 attempts). A player who made guesses but whose round was ended by a rush winner or the host is not counted, so the leaderboard shows '1/1 qalib' even after 2 rounds played. Cosmetic stats issue."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "RoomView (player)", "issue": "Reloading /room/{code} in the middle of a round restores the colored attempt rows but not the on-screen keyboard colors. usedLetters lives only in local state, and the first refresh() resets it because prevRoundRef starts as null. Daily mode already restores keyboard colors; Room does not.", "selector": "[data-testid='key-S']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_daily_status.py", "/app/test_reports/pytest/pytest_results_iter2.xml"],
+  "action_items": [
+    "Optional (LOW): in RoomView, derive usedLetters from myAttempts, e.g. useMemo(() => myAttempts.reduce((acc, a) => mergeUsedLetters(acc, a.guess, a.result), {}), [myAttempts]), so keyboard colors survive a reload mid-round.",
+    "Optional: decide whether a player whose round ended unfinished (rush or host end-round) should count toward games_played."
+  ],
+  "critical_code_review_comments": [
+    "RoomView: if the host reloads /room/{code} after closing it, they still get the host view of a closed room (non-hosts are redirected; hosts are not). Minor.",
+    "Daily: player_name is case- and whitespace-sensitive in the backend lookup, so 'Ali' and 'ali' are separate daily entries. Minor; consider normalizing the name."
+  ],
+  "updated_files": ["/app/backend/tests/test_daily_status.py"],
+  "success_rate": {"backend": "100% (3/3)", "frontend": "100% of requested fixes and regression flows (1 new LOW issue)"},
+  "test_credentials": "Host code Elnur (/app/memory/test_credentials.md) - works",
+  "seed_data_creation": "TEST_ rooms 7UFX09 (left active), 7GH3RN (closed), 203EQL (closed); TEST_DR_<ts> and TEST_status_* daily entries for today; TEST_Solo_mod solo game.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "All 6 fixes from iteration_1 verified. Use .jpg paths for screenshots that set quality. Room flows work with multiple contexts via page.context.browser.new_context(). Azerbaijani chars: dispatch KeyboardEvent on window. Host Panel modal exit animation takes ~0.3-1s. Today's daily word was revealed during testing (TEST_ names only)."
+}
