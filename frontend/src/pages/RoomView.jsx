@@ -10,6 +10,7 @@ import GameBoard from "../components/GameBoard";
 import AzerbaijaniKeyboard from "../components/AzerbaijaniKeyboard";
 import { KidMascot, useKidMood } from "../components/KidMascot";
 import { MAX_ATTEMPTS, mergeUsedLetters, keyFromEvent } from "../lib/game";
+import { playSound, playKeySound, playResultSound } from "../lib/sounds";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const POLL_MS = 2000;
@@ -66,6 +67,7 @@ const RoomView = () => {
   const { mood, react: kidReact, reset: kidReset } = useKidMood();
   const chatEndRef = useRef(null);
   const prevRoundRef = useRef(null);
+  const prevMsgCountRef = useRef(null);
 
   useEffect(() => {
     if (!playerName) {
@@ -93,7 +95,11 @@ const RoomView = () => {
       setPlayers(p.data);
       setLeaderboard(l.data);
       setMessages(c.data);
+      const last = c.data[c.data.length - 1];
+      if (prevMsgCountRef.current !== null && c.data.length > prevMsgCountRef.current && last?.sender !== playerName) playSound("message");
+      prevMsgCountRef.current = c.data.length;
       if (r.data.round_number !== prevRoundRef.current) {
+        if (prevRoundRef.current !== null && r.data.game_active) playSound("start");
         prevRoundRef.current = r.data.round_number;
         setCurrentGuess("");
         kidReset();
@@ -104,7 +110,7 @@ const RoomView = () => {
         navigate('/');
       }
     }
-  }, [roomCode, navigate, kidReset, isHost, storageKey]);
+  }, [roomCode, navigate, kidReset, isHost, storageKey, playerName]);
 
   useEffect(() => {
     refresh();
@@ -130,6 +136,7 @@ const RoomView = () => {
 
   const submitGuess = useCallback(async () => {
     if (currentGuess.length !== 5) {
+      playSound("error");
       toast.error("5 hərfli söz daxil edin");
       return;
     }
@@ -138,15 +145,18 @@ const RoomView = () => {
       const { result, won, completed, points_earned } = res.data;
       setCurrentGuess("");
       kidReact(result, won, completed);
+      playResultSound(result, won, completed);
       if (won) toast.success(`Təbriklər! +${points_earned} xal`);
       refresh();
     } catch (e) {
+      playSound("error");
       toast.error(e.response?.data?.detail || "Xəta baş verdi");
     }
   }, [currentGuess, roomCode, playerName, kidReact, refresh]);
 
   const handleKeyPress = useCallback((key) => {
     if (!canType) return;
+    playKeySound(key);
     if (key === "ENTER") submitGuess();
     else if (key === "BACKSPACE") setCurrentGuess((p) => p.slice(0, -1));
     else setCurrentGuess((p) => (p.length < 5 ? p + key : p));

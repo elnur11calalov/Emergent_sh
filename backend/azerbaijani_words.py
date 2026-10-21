@@ -1,43 +1,45 @@
-# Azərbaycan dilində 5 hərfli sözlər lüğəti
-# Statik lüğət bazası: /app/backend/five_letter_words.txt
-# Bu fayl yalnız referens üçündür və dəyişdirilməməlidir.
-
+# Statik lüğət bazası: /app/backend/five_letter_words.md (dəyişməz, yalnız referens)
+# Yüklənmə bir dəfə, modul import olunanda baş verir.
+import random
+from datetime import datetime, timezone
 from pathlib import Path
 
-_DICT_PATH = Path(__file__).parent / "five_letter_words.txt"
+_DICT_PATH = Path(__file__).parent / "five_letter_words.md"
+
+
+def az_upper(word: str) -> str:
+    """Azərbaycan dilinə uyğun böyük hərf: i -> İ, ı -> I"""
+    return word.strip().replace("i", "İ").replace("ı", "I").upper()
 
 
 def _load_words():
-    """Lüğəti fayldan oxuyur (yalnız bir dəfə import zamanı)."""
     words = []
     seen = set()
-    with open(_DICT_PATH, "r", encoding="utf-8") as f:
+    with open(_DICT_PATH, encoding="utf-8") as f:
         for line in f:
-            w = line.strip().upper()
-            if len(w) == 5 and w not in seen:
-                seen.add(w)
-                words.append(w)
+            w = az_upper(line)
+            if not w or w.startswith("`") or len(w) != 5 or w in seen:
+                continue
+            seen.add(w)
+            words.append(w)
     return words
 
 
 AZERBAIJANI_WORDS = _load_words()
+_WORD_SET = frozenset(AZERBAIJANI_WORDS)
 DAILY_WORDS = AZERBAIJANI_WORDS
 
 
 def get_random_word():
-    """Təsadüfi 5 hərfli söz qaytarır"""
-    import random
     return random.choice(AZERBAIJANI_WORDS)
 
 
 def get_daily_word():
-    """Günlük söz qaytarır - hər gün üçün unikal (UTC)"""
-    from datetime import datetime, timezone
+    """Hər gün (UTC) üçün eyni söz"""
     today = datetime.now(timezone.utc).date()
-    day_index = today.toordinal() % len(DAILY_WORDS)
-    return DAILY_WORDS[day_index]
+    return DAILY_WORDS[today.toordinal() % len(DAILY_WORDS)]
 
 
 def validate_word(word: str) -> bool:
-    """Sözün lüğətdə olub olmadığını yoxlayır (hərflərin böyük/kiçikliyi nəzərə alınmır)"""
-    return word.upper() in AZERBAIJANI_WORDS
+    """Böyük/kiçik hərfdən asılı olmayaraq lüğətdə yoxlayır"""
+    return az_upper(word) in _WORD_SET

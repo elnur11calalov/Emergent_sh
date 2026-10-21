@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime, timezone
 import random
 import string
-from azerbaijani_words import AZERBAIJANI_WORDS, DAILY_WORDS, get_random_word, get_daily_word, validate_word
+from azerbaijani_words import AZERBAIJANI_WORDS, DAILY_WORDS, get_random_word, get_daily_word, validate_word, az_upper
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -94,9 +94,19 @@ def generate_code(length=6):
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
 
 
+def dictionary_word(word: str) -> str:
+    """Normalizes a guess/host word and rejects anything not in the dictionary"""
+    w = az_upper(word)
+    if len(w) != 5:
+        raise HTTPException(status_code=400, detail="Söz 5 hərfli olmalıdır!")
+    if not validate_word(w):
+        raise HTTPException(status_code=400, detail="Bu söz lüğətdə yoxdur")
+    return w
+
+
 def check_guess(guess: str, target: str) -> List[str]:
-    guess = guess.upper()
-    target = target.upper()
+    guess = az_upper(guess)
+    target = az_upper(target)
     result = []
     target_chars = list(target)
 
@@ -203,11 +213,10 @@ async def set_room_word(room_code: str, word: str, host_code: str):
         raise HTTPException(status_code=404, detail="Oda tapılmadı")
     if room.get("host_code") != host_code:
         raise HTTPException(status_code=403, detail="Yalnız host söz təyin edə bilər!")
-    if len(word) != 5:
-        raise HTTPException(status_code=400, detail="Söz 5 hərfli olmalıdır!")
+    word = dictionary_word(word)
     await db.rooms.update_one(
         {"room_code": room_code},
-        {"$set": {"current_word": word.upper()}}
+        {"$set": {"current_word": word}}
     )
     return {"message": "Söz təyin edildi"}
 
@@ -296,12 +305,11 @@ async def room_guess(room_code: str, guess_data: RoomGuess):
         raise HTTPException(status_code=404, detail="Oyunçu tapılmadı")
     if player.get("current_completed"):
         raise HTTPException(status_code=400, detail="Siz artıq bitirmisiniz")
-    if len(guess_data.guess) != 5:
-        raise HTTPException(status_code=400, detail="Söz 5 hərfli olmalıdır!")
+    guess = dictionary_word(guess_data.guess)
 
-    result = check_guess(guess_data.guess, room["current_word"])
+    result = check_guess(guess, room["current_word"])
     attempt = {
-        "guess": guess_data.guess.upper(),
+        "guess": guess,
         "result": result,
         "timestamp": datetime.now(timezone.utc).isoformat()
     }
@@ -404,12 +412,11 @@ async def solo_game_guess(guess_data: SoloGuess):
         raise HTTPException(status_code=404, detail="Oyun tapılmadı")
     if game.get("completed"):
         raise HTTPException(status_code=400, detail="Oyun bitib")
-    if len(guess_data.guess) != 5:
-        raise HTTPException(status_code=400, detail="Söz 5 hərfli olmalıdır!")
+    guess = dictionary_word(guess_data.guess)
 
-    result = check_guess(guess_data.guess, game["word"])
+    result = check_guess(guess, game["word"])
     attempt = {
-        "guess": guess_data.guess.upper(),
+        "guess": guess,
         "result": result,
         "timestamp": datetime.now(timezone.utc).isoformat()
     }
@@ -449,6 +456,8 @@ async def daily_game_guess(guess_data: DailyGuess):
     today = datetime.now(timezone.utc).date().isoformat()
     daily_word = get_daily_word()
 
+    guess = dictionary_word(guess_data.guess)
+
     player_daily = await db.daily_games.find_one({
         "player_name": guess_data.player_name,
         "date": today
@@ -468,12 +477,10 @@ async def daily_game_guess(guess_data: DailyGuess):
 
     if player_daily.get("completed"):
         raise HTTPException(status_code=400, detail="Bu gün artıq oynadınız")
-    if len(guess_data.guess) != 5:
-        raise HTTPException(status_code=400, detail="Söz 5 hərfli olmalıdır!")
 
-    result = check_guess(guess_data.guess, daily_word)
+    result = check_guess(guess, daily_word)
     attempt = {
-        "guess": guess_data.guess.upper(),
+        "guess": guess,
         "result": result,
         "timestamp": datetime.now(timezone.utc).isoformat()
     }
@@ -573,7 +580,7 @@ async def get_random_words(count: int = 5):
 @api_router.post("/words/validate")
 async def validate_word_endpoint(word: str):
     is_valid = validate_word(word)
-    return {"valid": is_valid, "word": word.upper()}
+    return {"valid": is_valid, "word": az_upper(word)}
 
 
 # Include the router in the main app

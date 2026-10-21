@@ -10,6 +10,7 @@ import GameBoard from "../components/GameBoard";
 import AzerbaijaniKeyboard from "../components/AzerbaijaniKeyboard";
 import { KidMascot, useKidMood } from "../components/KidMascot";
 import { MAX_ATTEMPTS, mergeUsedLetters, keyFromEvent } from "../lib/game";
+import { playSound, playKeySound, playResultSound } from "../lib/sounds";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -88,6 +89,7 @@ const DailyGame = () => {
 
   const submitGuess = useCallback(async () => {
     if (currentGuess.length !== 5) {
+      playSound("error");
       toast.error("5 hərfli söz daxil edin");
       return;
     }
@@ -98,6 +100,7 @@ const DailyGame = () => {
       setUsedLetters((prev) => mergeUsedLetters(prev, currentGuess, result));
       setCurrentGuess("");
       kid.react(result, didWin, completed);
+      playResultSound(result, didWin, completed);
       if (completed) {
         setGameOver(true);
         setWon(didWin);
@@ -111,6 +114,7 @@ const DailyGame = () => {
         toast.info("Bu gün artıq oynadınız!");
         setGameOver(true);
       } else {
+        playSound("error");
         toast.error(detail || "Xəta");
       }
     }
@@ -118,6 +122,7 @@ const DailyGame = () => {
 
   const handleKeyPress = useCallback((key) => {
     if (gameOver) return;
+    playKeySound(key);
     if (key === "ENTER") submitGuess();
     else if (key === "BACKSPACE") setCurrentGuess((p) => p.slice(0, -1));
     else setCurrentGuess((p) => (p.length < 5 ? p + key : p));
