@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import { Button } from "../components/ui/button";
@@ -27,6 +27,7 @@ const SoloGame = () => {
   const [points, setPoints] = useState(0);
   const [loading, setLoading] = useState(false);
   const kid = useKidMood();
+  const submittingRef = useRef(false);
 
   const startGame = async () => {
     if (!playerName.trim()) {
@@ -73,7 +74,11 @@ const SoloGame = () => {
   const handleKeyPress = useCallback((key) => {
     if (gameOver) return;
     playKeySound(key);
-    if (key === "ENTER") submitGuess();
+    if (key === "ENTER") {
+      if (submittingRef.current) return;
+      submittingRef.current = true;
+      submitGuess().finally(() => { submittingRef.current = false; });
+    }
     else if (key === "BACKSPACE") setCurrentGuess((p) => p.slice(0, -1));
     else setCurrentGuess((p) => (p.length < 5 ? p + key : p));
   }, [gameOver, submitGuess]);
@@ -82,7 +87,9 @@ const SoloGame = () => {
     if (!gameId) return;
     const onKeyDown = (e) => {
       const key = keyFromEvent(e);
-      if (key) handleKeyPress(key);
+      if (!key) return;
+      if (key === "ENTER") e.preventDefault();
+      handleKeyPress(key);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);

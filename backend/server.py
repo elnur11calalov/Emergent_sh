@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException
+from fastapi import FastAPI, APIRouter, HTTPException, Query
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -572,8 +572,8 @@ async def get_game_history(host_code: str):
 
 # ==================== WORDS ====================
 @api_router.get("/words/random")
-async def get_random_words(count: int = 5):
-    words = random.sample(AZERBAIJANI_WORDS, min(count, 10))
+async def get_random_words(count: int = Query(5, ge=1, le=10)):
+    words = random.sample(AZERBAIJANI_WORDS, count)
     return {"words": words}
 
 

@@ -68,6 +68,7 @@ const RoomView = () => {
   const chatEndRef = useRef(null);
   const prevRoundRef = useRef(null);
   const prevMsgCountRef = useRef(null);
+  const submittingRef = useRef(false);
 
   useEffect(() => {
     if (!playerName) {
@@ -157,7 +158,11 @@ const RoomView = () => {
   const handleKeyPress = useCallback((key) => {
     if (!canType) return;
     playKeySound(key);
-    if (key === "ENTER") submitGuess();
+    if (key === "ENTER") {
+      if (submittingRef.current) return;
+      submittingRef.current = true;
+      submitGuess().finally(() => { submittingRef.current = false; });
+    }
     else if (key === "BACKSPACE") setCurrentGuess((p) => p.slice(0, -1));
     else setCurrentGuess((p) => (p.length < 5 ? p + key : p));
   }, [canType, submitGuess]);
@@ -166,7 +171,9 @@ const RoomView = () => {
     const onKeyDown = (e) => {
       if (e.target.tagName === "INPUT") return;
       const key = keyFromEvent(e);
-      if (key) handleKeyPress(key);
+      if (!key) return;
+      if (key === "ENTER") e.preventDefault();
+      handleKeyPress(key);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -194,6 +201,7 @@ const RoomView = () => {
       toast.success("Oyun başladı!");
       refresh();
     } catch (e) {
+      playSound("error");
       toast.error(e.response?.data?.detail || "Xəta");
     }
   };
@@ -204,6 +212,7 @@ const RoomView = () => {
       toast.success("Raund bitdi");
       refresh();
     } catch (e) {
+      playSound("error");
       toast.error(e.response?.data?.detail || "Xəta");
     }
   };
@@ -221,6 +230,7 @@ const RoomView = () => {
       setShowSettings(false);
       refresh();
     } catch (e) {
+      playSound("error");
       toast.error(e.response?.data?.detail || "Xəta");
     }
   };
@@ -232,6 +242,7 @@ const RoomView = () => {
       toast.success("Oda bağlandı");
       navigate('/');
     } catch (e) {
+      playSound("error");
       toast.error(e.response?.data?.detail || "Xəta");
     }
   };

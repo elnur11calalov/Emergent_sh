@@ -1,0 +1,38 @@
+{
+  "summary": "Tested the static dictionary (five_letter_words.md), case-insensitive Azerbaijani validation, guess and host-word validation, and the one-shot Web Audio sounds. Backend: 12/12 pytest pass. Frontend: Playwright with AudioContext.createOscillator instrumentation checked Solo, Daily, Room host/player, chat, leaderboard and the Host Panel. Every requested feature works: the dictionary toasts, attempts not consumed, lowercase/mixed-case win for 2500 points, and all sound mappings. All 53+ oscillators had a finite stop() scheduled, all fired 'ended' within 2s, and none looped. Found 1 medium bug (physical Enter double-submits a guess) and 3 low issues.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/words/random?count=-1", "issue": "Returns 500 because random.sample raises ValueError on a negative count. Clamp the value or use Query(ge=1, le=10)."},
+      {"endpoint": "azerbaijani_words._load_words", "issue": "3 dictionary entries contain the Cyrillic letter 'Х' (U+0425) instead of the Latin X. If one is picked as the solo/daily/random target it cannot be guessed, and host/players cannot enter it. Fix in the loader only (map U+0425/U+0445 to X/x in az_upper or _load_words) without editing the .md file."},
+      {"endpoint": "/api/rooms|solo|daily guess", "issue": "No in-flight or duplicate guard. Two concurrent identical POSTs both count as attempts (see the frontend double-submit bug)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "AzerbaijaniKeyboard + SoloGame/DailyGame/RoomView keydown", "issue": "After clicking the on-screen ENTER, the button keeps focus. Typing letters and then pressing the physical Enter fires the window keydown submit AND the native button click, so the same guess is submitted twice. Reproduced in Solo: one Enter gave two identical committed rows ('ÇIXMA' x2), used 2 attempts and played the result sound twice. If another key button (e.g. backspace) is focused, physical Enter also triggers it, which played an extra delete sound. Fix: add tabIndex={-1} or onMouseDown={e=>e.preventDefault()} to the key buttons (or blur after click), call e.preventDefault() for Enter in the keydown handler, and add a 'submitting' ref guard in submitGuess.", "selector": "[data-testid='key-enter']", "priority": "MEDIUM"},
+      {"component": "RoomView handleStart (host)", "issue": "When the host sets a non-dictionary word, the toast 'Bu söz lüğətdə yoxdur' shows but no error sound plays (the catch block has no playSound('error')). Player-side and Solo/Daily errors do play the error sound.", "selector": "[data-testid='start-round-button']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_dictionary_and_guess.py", "/app/backend/tests/test_daily_status.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "Fix the physical Enter double-submit: stop key buttons keeping focus (tabIndex=-1 / preventDefault on mousedown), preventDefault Enter in the keydown handlers, and add an isSubmitting guard",
+    "Add playSound('error') to the RoomView handleStart/handleEndRound catch blocks",
+    "Normalize the Cyrillic 'Х' to the Latin 'X' when loading the dictionary (3 entries affected); do not modify the file",
+    "Validate the count query on /api/words/random (ge=1, le=10) to avoid a 500"
+  ],
+  "critical_code_review_comments": [
+    "RoomView.jsx is 544 lines; consider extracting HostGameView/ChatPanel/SettingsModal into separate files",
+    "The host also gets the 'start' sound when it starts a round (refresh detects round change); acceptable but could be skipped for the host",
+    "Verified: the useClickSound global listener correctly skips key-* buttons; the message sound skips the first load and your own messages; the start sound is not played on the first load"
+  ],
+  "updated_files": ["/app/backend/tests/test_daily_status.py (now uses /api/words/random words instead of non-dictionary guesses)", "/app/backend/tests/test_dictionary_and_guess.py (new)"],
+  "success_rate": {"backend": "100% (12/12)", "frontend": "~92% (all requested checks pass; 1 medium double-submit bug, 1 missing host error sound)"},
+  "seed_data_creation": "TEST_-prefixed solo/daily games and rooms (rooms closed after tests)",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Sound instrumentation: add_init_script wrapping AudioContext.prototype.createOscillator and recording frequency.setValueAtTime values, stop() time and the 'ended' event. Frequency map: click 820, key 620, delete 300, error 160/130, happy 660/880, sad 440/330, win 523/659/784/1047, lose 392/349/311/262, start 523/784, message 988/1319. To reproduce the double-submit: in Solo click key-enter, dispatch letter keydowns, then call page.keyboard.press('Enter') and you get 2 rows. Use .jpg for screenshots that need quality. Do not dump the dictionary.",
+  "rca of the issue": "Double-submit: a native <button> keeps focus after a mouse click, so the Enter keydown fires both the window listener (submitGuess) and the button's default activation (onClick -> handleKeyPress('ENTER') -> submitGuess) before currentGuess is reset by the async response. Both POSTs succeed because the backend has no duplicate guard."
+}

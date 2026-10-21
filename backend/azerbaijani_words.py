@@ -8,8 +8,9 @@ _DICT_PATH = Path(__file__).parent / "five_letter_words.md"
 
 
 def az_upper(word: str) -> str:
-    """Azərbaycan dilinə uyğun böyük hərf: i -> İ, ı -> I"""
-    return word.strip().replace("i", "İ").replace("ı", "I").upper()
+    """Azərbaycan dilinə uyğun böyük hərf: i -> İ, ı -> I (kiril Х/х -> latın X)"""
+    w = word.strip().replace("Х", "X").replace("х", "x")
+    return w.replace("i", "İ").replace("ı", "I").upper()
 
 
 def _load_words():
