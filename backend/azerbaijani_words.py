@@ -1,15 +1,15 @@
-# Statik lüğət bazası: /app/backend/five_letter_words.md (dəyişməz, yalnız referens)
+# Statik lüğət bazası: /app/backend/Bes_herfli_sozler.md (dəyişməz, yalnız referens)
 # Yüklənmə bir dəfə, modul import olunanda baş verir.
 import random
 from datetime import datetime, timezone
 from pathlib import Path
 
-_DICT_PATH = Path(__file__).parent / "five_letter_words.md"
+_DICT_PATH = Path(__file__).parent / "Bes_herfli_sozler.md"
 
 
 def az_upper(word: str) -> str:
     """Azərbaycan dilinə uyğun böyük hərf: i -> İ, ı -> I (kiril Х/х -> latın X)"""
-    w = word.strip().replace("Х", "X").replace("х", "x")
+    w = word.strip().replace("\u0307", "").replace("Х", "X").replace("х", "x")
     return w.replace("i", "İ").replace("ı", "I").upper()
 
 
