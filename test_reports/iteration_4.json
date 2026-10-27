@@ -1,0 +1,45 @@
+{
+  "summary": "Tested Google-account integration with seeded Mongo sessions (cookie + Bearer). Backend: 26 pytest cases (15 existing + 11 new in test_accounts_extended.py), 25 pass. The 1 failure is a security finding: GET /api/rooms/{code} returns current_word. Frontend (Playwright, desktop + mobile): all requested flows passed. Guest gating: lock badges, login-required on 6 routes, Solo with name + guest-note, public leaderboard. The Google button redirects to auth.emergentagent.com with redirect=origin+'/'. Nickname setup appears first after login (duplicate gives a 409 message, invalid gives a 400 message, saving lands in the app). Daily: no name input, 2x badge, dictionary toast, 5000 on the 1st try and 3600 on the 2nd. Partial and completed progress are restored on a second browser context. Room: create asks only the room name; joining by code and by direct /room/CODE auto-join both work; the host view is decided by account (checked in a fresh context); a win of 1800 was added on top of the seeded 1000, giving 2800. Chat shows nicknames with own messages on the right. Cumulative total went 1000 -> 2800 -> 6400 (room + daily). Profile values all matched; nickname edit works. Overall leaderboard is sorted and shows '(sən)'. Solo signed-in resumes and does not change total_points. Host Panel: wrong code is rejected and 'Elnur' opens it. Logout gives 401 on /auth/me.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "GET /api/rooms/{room_code}", "issue": "Response includes current_word (and host_code) for anyone. Players' RoomView polls this every few seconds, so the secret word can be read in DevTools > Network. Points now go to the account and the overall leaderboard, so this lets players cheat.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "POST /api/rooms/{code}/set-word|start-game|end-round|close|settings", "issue": "These only check host_code=='Elnur'. They need no login and do not check room.host_user_id, so any signed-in user, or even an anonymous request, can control any room. The 'host decided by account' rule is only enforced in the UI."},
+      {"endpoint": "POST /api/solo/guess", "issue": "No ownership check: anyone who has a game_id can guess on another user's signed-in solo game (low impact because solo points do not count)."},
+      {"endpoint": "POST /api/chat/send", "issue": "Does not check that the room exists or that the sender is a member/host of the room."},
+      {"endpoint": "PUT /api/auth/nickname", "issue": "Changing the nickname does not update the player_name already stored in daily_games/room_players, so today's daily leaderboard and the room leaderboards keep showing the old nickname. There is also no unique index on nickname_lower, so two concurrent saves of the same nickname could both succeed."},
+      {"endpoint": "POST /api/auth/logout", "issue": "Only deletes the session found in the cookie; a Bearer-only client cannot log out on the server."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Leaderboard (mobile 390px)", "issues": ["The 'Ümumi Liderlik' title wraps to 2 lines and the trophy icon sits right against the Geri button; stack the header or shrink the title", "The page background shows a grey/beige bleed behind the list on mobile, which looks different from the other dark pages"]},
+      {"screen": "NicknameSetup", "issues": ["No logout/switch-account option, so a user who signed in with the wrong Google account is stuck on this screen"]},
+      {"screen": "Host Panel", "issues": ["Many leftover TEST_* rooms from earlier iterations are still 'active' (not created in this run)"]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_accounts.py", "/app/backend/tests/test_accounts_extended.py", "/app/backend/tests/test_dictionary_and_guess.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "Strip current_word and host_code from GET /api/rooms/{code} for non-hosts (optional user dependency: return the word only when user_id == host_user_id, or only after the round ends)",
+    "Require get_player + room.host_user_id == user.user_id on the set-word/start-game/end-round/close/settings endpoints (keep the code check if wanted)",
+    "Optional: when the nickname changes, update player_name in today's daily_games and in room_players; add a unique index on users.nickname_lower",
+    "Optional: check ownership on solo/guess; check room existence/membership on chat/send",
+    "Fix the mobile leaderboard header layout and background; add a logout link on NicknameSetup"
+  ],
+  "critical_code_review_comments": [
+    "Room host authority is only in the UI: the backend trusts a shared static code that is also hardcoded in the frontend bundle (the hardcoding itself is accepted, but ownership should be checked with host_user_id now that accounts exist)",
+    "Possible double award: daily_game_guess/room_guess do read-modify-write without an atomic guard, so two parallel requests on the last guess could both award points (the UI submitting guard reduces this). Consider a conditional update on completed:false",
+    "/app/memory/test_credentials.md is outdated: it says 'No accounts. Players just type a name'. Update it with the seeded smoke sessions (test_session_smoke / test_session_nonick) and the cookie approach",
+    "RoomView.jsx is 549 lines (approaching the limit)"
+  ],
+  "updated_files": ["/app/backend/tests/test_accounts_extended.py"],
+  "success_rate": {"backend": "96% (25/26; the failure is a security finding)", "frontend": "100% of requested flows"},
+  "test_credentials": "Seeded sessions via mongosh (see auth_testing.md). Existing smoke sessions test_session_smoke (TEST_Smoke) and test_session_nonick were left untouched. Host code: Elnur",
+  "seed_data_creation": "Created test-user-uihost/uiplayer/uinew/uidaily (test.user.ui*@example.com) with their sessions/rooms/games/chat; all deleted after testing. The pytest conftest cleans up its own users.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Use cookie session_token (domain wordle-az-2.preview.emergentagent.com, secure, sameSite None) via add_cookies; a new browser context simulates a second device. Type guesses with page.keyboard.press per letter + Enter; use ASCII-only words from /api/words/random. An invalid word stays in the current row (the user must backspace). PlayerGameView shows waiting-screen when no round is active and player-game-view only during a round. Daily word is available from azerbaijani_words.get_daily_word() (do not print the dictionary). After fixes, re-run test_accounts_extended.py::test_room_get_does_not_leak_word, which should pass."
+}

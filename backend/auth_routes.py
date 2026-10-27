@@ -6,8 +6,9 @@ from datetime import datetime, timedelta, timezone
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
+from pymongo.errors import DuplicateKeyError
 
-from core import SESSION_COOKIE, db, get_current_user
+from core import SESSION_COOKIE, db, get_current_user, _token_from_request
 
 router = APIRouter(prefix="/api")
 
@@ -88,7 +89,7 @@ async def me(user: dict = Depends(get_current_user)):
 
 @router.post("/auth/logout")
 async def logout(request: Request, response: Response):
-    token = request.cookies.get(SESSION_COOKIE)
+    token = _token_from_request(request)
     if token:
         await db.user_sessions.delete_one({"session_token": token})
     response.delete_cookie(SESSION_COOKIE, path="/", secure=True, samesite="none")
@@ -104,9 +105,18 @@ async def set_nickname(body: NicknameRequest, user: dict = Depends(get_current_u
     taken = await db.users.find_one({"nickname_lower": lower, "user_id": {"$ne": user["user_id"]}})
     if taken:
         raise HTTPException(status_code=409, detail="Bu ləqəb artıq istifadə olunur")
-    await db.users.update_one(
-        {"user_id": user["user_id"]}, {"$set": {"nickname": nickname, "nickname_lower": lower}}
-    )
+    try:
+        await db.users.update_one(
+            {"user_id": user["user_id"]}, {"$set": {"nickname": nickname, "nickname_lower": lower}}
+        )
+    except DuplicateKeyError:
+        raise HTTPException(status_code=409, detail="Bu ləqəb artıq istifadə olunur")
+    # Show the new nickname in today's daily table and in every room
+    uid = user["user_id"]
+    today = datetime.now(timezone.utc).date().isoformat()
+    await db.daily_games.update_many({"user_id": uid, "date": today}, {"$set": {"player_name": nickname}})
+    await db.room_players.update_many({"user_id": uid}, {"$set": {"player_name": nickname}})
+    await db.rooms.update_many({"host_user_id": uid}, {"$set": {"host_name": nickname}})
     user.update({"nickname": nickname})
     return public_user(user)
 
