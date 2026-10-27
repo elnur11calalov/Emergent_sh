@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import { Button } from "../components/ui/button";
-import { Input } from "../components/ui/input";
 import { ArrowLeft, Calendar, Trophy, Clock } from "lucide-react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
@@ -39,7 +38,6 @@ const useCountdownToUtcMidnight = () => {
 
 const DailyGame = () => {
   const navigate = useNavigate();
-  const [playerName, setPlayerName] = useState("");
   const [started, setStarted] = useState(false);
   const [attempts, setAttempts] = useState([]);
   const [currentGuess, setCurrentGuess] = useState("");
@@ -64,15 +62,10 @@ const DailyGame = () => {
 
   useEffect(() => { fetchLeaderboard(); }, [fetchLeaderboard]);
 
-  // Restores today's progress for this name (or shows the finished result)
+  // Restores today's progress for this account, on any device
   const startGame = async () => {
-    const name = playerName.trim();
-    if (!name) {
-      toast.error("Adınızı daxil edin");
-      return;
-    }
     try {
-      const { data } = await axios.get(`${API}/daily/status`, { params: { player_name: name } });
+      const { data } = await axios.get(`${API}/daily/status`);
       setAttempts(data.attempts);
       setUsedLetters(data.attempts.reduce((acc, a) => mergeUsedLetters(acc, a.guess, a.result), {}));
       if (data.completed) {
@@ -95,7 +88,7 @@ const DailyGame = () => {
       return;
     }
     try {
-      const res = await axios.post(`${API}/daily/guess`, { player_name: playerName.trim(), guess: currentGuess });
+      const res = await axios.post(`${API}/daily/guess`, { guess: currentGuess });
       const { result, completed, won: didWin, points: pts, correct_word } = res.data;
       setAttempts((prev) => [...prev, { guess: currentGuess, result }]);
       setUsedLetters((prev) => mergeUsedLetters(prev, currentGuess, result));
@@ -119,7 +112,7 @@ const DailyGame = () => {
         toast.error(detail || "Xəta");
       }
     }
-  }, [currentGuess, playerName, kid, fetchLeaderboard]);
+  }, [currentGuess, kid, fetchLeaderboard]);
 
   const handleKeyPress = useCallback((key) => {
     if (gameOver) return;
@@ -168,16 +161,8 @@ const DailyGame = () => {
               <span className="text-orange-400 font-mono font-bold" data-testid="countdown">{countdown}</span>
             </div>
             <div className="space-y-4">
-              <div>
-                <label className="text-sm text-white/70 mb-2 block">Adınız</label>
-                <Input
-                  data-testid="player-name-input"
-                  value={playerName}
-                  onChange={(e) => setPlayerName(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && startGame()}
-                  placeholder="Adınızı daxil edin"
-                  className="bg-black/20 border-white/10 text-white text-lg h-14"
-                />
+              <div className="text-center text-sm bg-yellow-500/15 border border-yellow-500/30 text-yellow-300 rounded-xl py-2 font-semibold" data-testid="double-points-badge">
+                Günlük oyunda xallar 2x!
               </div>
               <Button
                 data-testid="start-daily-button"

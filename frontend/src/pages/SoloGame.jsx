@@ -11,11 +11,14 @@ import AzerbaijaniKeyboard from "../components/AzerbaijaniKeyboard";
 import { KidMascot, useKidMood } from "../components/KidMascot";
 import { MAX_ATTEMPTS, mergeUsedLetters, keyFromEvent } from "../lib/game";
 import { playSound, playKeySound, playResultSound } from "../lib/sounds";
+import { useAuth } from "../lib/auth";
+import { GoogleButton } from "../components/Auth";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 const SoloGame = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [playerName, setPlayerName] = useState("");
   const [gameId, setGameId] = useState(null);
   const [attempts, setAttempts] = useState([]);
@@ -29,14 +32,17 @@ const SoloGame = () => {
   const kid = useKidMood();
   const submittingRef = useRef(false);
 
+  // Signed-in players use their nickname and continue an unfinished game
   const startGame = async () => {
-    if (!playerName.trim()) {
+    if (!user && !playerName.trim()) {
       toast.error("Adınızı daxil edin");
       return;
     }
     setLoading(true);
     try {
-      const res = await axios.post(`${API}/solo/start`, { player_name: playerName.trim() });
+      const res = await axios.post(`${API}/solo/start`, { player_name: user ? null : playerName.trim() });
+      setAttempts(res.data.attempts);
+      setUsedLetters(res.data.attempts.reduce((acc, a) => mergeUsedLetters(acc, a.guess, a.result), {}));
       setGameId(res.data.game_id);
     } catch (e) {
       toast.error("Oyun başlatmaq mümkün olmadı");
@@ -52,7 +58,7 @@ const SoloGame = () => {
       return;
     }
     try {
-      const res = await axios.post(`${API}/solo/guess`, { game_id: gameId, player_name: playerName, guess: currentGuess });
+      const res = await axios.post(`${API}/solo/guess`, { game_id: gameId, guess: currentGuess });
       const { result, completed, won: didWin, points: pts, correct_word } = res.data;
       setAttempts((prev) => [...prev, { guess: currentGuess, result }]);
       setUsedLetters((prev) => mergeUsedLetters(prev, currentGuess, result));
@@ -69,7 +75,7 @@ const SoloGame = () => {
       playSound("error");
       toast.error(e.response?.data?.detail || "Xəta baş verdi");
     }
-  }, [currentGuess, gameId, playerName, kid]);
+  }, [currentGuess, gameId, kid]);
 
   const handleKeyPress = useCallback((key) => {
     if (gameOver) return;
@@ -122,17 +128,22 @@ const SoloGame = () => {
             </Button>
             <h1 className="text-4xl font-bold text-white mb-8 text-center" style={{ fontFamily: 'Outfit, sans-serif' }}>Tək Oyun</h1>
             <div className="space-y-4">
-              <div>
-                <label className="text-sm text-white/70 mb-2 block">Adınız</label>
-                <Input
-                  data-testid="player-name-input"
-                  value={playerName}
-                  onChange={(e) => setPlayerName(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && startGame()}
-                  placeholder="Adınızı daxil edin"
-                  className="bg-black/20 border-white/10 text-white text-lg h-14"
-                />
-              </div>
+              {user ? (
+                <p className="text-center text-white/70" data-testid="solo-signed-in">Oyunçu: <span className="text-white font-semibold">{user.nickname}</span></p>
+              ) : (
+                <div>
+                  <label className="text-sm text-white/70 mb-2 block">Adınız</label>
+                  <Input
+                    data-testid="player-name-input"
+                    value={playerName}
+                    onChange={(e) => setPlayerName(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && startGame()}
+                    placeholder="Adınızı daxil edin"
+                    className="bg-black/20 border-white/10 text-white text-lg h-14"
+                  />
+                  <p className="text-xs text-white/40 mt-2" data-testid="guest-note">Qonaq rejimi: nəticələr hesabda saxlanılmır.</p>
+                </div>
+              )}
               <Button
                 data-testid="start-solo-button"
                 onClick={startGame}
@@ -141,10 +152,11 @@ const SoloGame = () => {
               >
                 {loading ? "Başlayır..." : "Oyuna Başla"}
               </Button>
+              {!user && <GoogleButton className="w-full h-12" returnPath="/solo" />}
             </div>
           </div>
         </motion.div>
-        <KidMascot mood="wave" message="Adını yaz, başlayaq!" />
+        <KidMascot mood="wave" message={user ? "Hazırsan? Başlayaq!" : "Adını yaz, başlayaq!"} />
       </div>
     );
   }
@@ -162,7 +174,7 @@ const SoloGame = () => {
             Geri
           </Button>
           <h1 className="text-2xl md:text-3xl font-bold text-white" style={{ fontFamily: 'Outfit, sans-serif' }}>Tək Oyun</h1>
-          <div className="text-white/70 text-sm" data-testid="player-display">{playerName}</div>
+          <div className="text-white/70 text-sm" data-testid="player-display">{user ? user.nickname : playerName}</div>
         </div>
 
         <div className="bg-blue-950/30 backdrop-blur-md border border-blue-500/20 rounded-2xl p-4 md:p-6 mb-4">

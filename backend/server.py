@@ -1,25 +1,16 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Query
-from dotenv import load_dotenv
+from fastapi import FastAPI, APIRouter, HTTPException, Query, Depends, Request
 from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
-from pathlib import Path
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 from typing import List, Optional
 import uuid
 from datetime import datetime, timezone
 import random
 import string
-from azerbaijani_words import AZERBAIJANI_WORDS, DAILY_WORDS, get_random_word, get_daily_word, validate_word, az_upper
-
-ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / '.env')
-
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+from azerbaijani_words import AZERBAIJANI_WORDS, get_random_word, get_daily_word, validate_word, az_upper
+from core import db, client, get_player, get_optional_user, check_host_code, award_points
+from auth_routes import router as auth_router
 
 # Create the main app without a prefix
 app = FastAPI()
@@ -37,6 +28,8 @@ POINT_SYSTEM = {
     6: 400,
     0: 0
 }
+# Günlük oyunda xallar ikiqatdır
+DAILY_MULTIPLIER = 2
 
 
 def calculate_points(attempts_count: int, won: bool) -> int:
@@ -47,7 +40,6 @@ def calculate_points(attempts_count: int, won: bool) -> int:
 
 # ==================== Models ====================
 class RoomCreate(BaseModel):
-    host_name: str
     room_name: str
     host_code: str
 
@@ -59,34 +51,28 @@ class RoomSettings(BaseModel):
 
 class JoinRoom(BaseModel):
     room_code: str
-    player_name: str
 
 
 class ChatMessage(BaseModel):
     room_code: str
-    sender: str
     message: str
-    timestamp: str
 
 
 class RoomGuess(BaseModel):
     room_code: str
-    player_name: str
     guess: str
 
 
 class SoloGameStart(BaseModel):
-    player_name: str
+    player_name: Optional[str] = None
 
 
 class SoloGuess(BaseModel):
     game_id: str
-    player_name: str
     guess: str
 
 
 class DailyGuess(BaseModel):
-    player_name: str
     guess: str
 
 
@@ -137,22 +123,21 @@ async def root():
 # ==================== HOST AUTH ====================
 @api_router.post("/host/verify")
 async def verify_host(host_code: str):
-    if host_code != "Elnur":
-        raise HTTPException(status_code=403, detail="Yanlış host kodu!")
+    check_host_code(host_code)
     return {"message": "Host doğrulandı", "verified": True}
 
 
 # ==================== ROOMS ====================
 @api_router.post("/rooms/create")
-async def create_room(room_data: RoomCreate):
-    if room_data.host_code != "Elnur":
-        raise HTTPException(status_code=403, detail="Yalnız host oda yarada bilər!")
+async def create_room(room_data: RoomCreate, user: dict = Depends(get_player)):
+    check_host_code(room_data.host_code)
 
     room_code = generate_code()
     room_dict = {
         "room_code": room_code,
         "room_name": room_data.room_name,
-        "host_name": room_data.host_name,
+        "host_name": user["nickname"],
+        "host_user_id": user["user_id"],
         "host_code": room_data.host_code,
         "participants": [],
         "current_word": None,
@@ -167,26 +152,27 @@ async def create_room(room_data: RoomCreate):
 
 
 @api_router.post("/rooms/{room_code}/join")
-async def join_room(room_code: str, join_data: JoinRoom):
+async def join_room(room_code: str, join_data: JoinRoom, user: dict = Depends(get_player)):
     room = await db.rooms.find_one({"room_code": room_code})
     if not room:
         raise HTTPException(status_code=404, detail="Oda tapılmadı")
     if room.get("status") == "closed":
         raise HTTPException(status_code=410, detail="Oda bağlanıb")
+    if room.get("host_user_id") == user["user_id"]:
+        return {"message": "Siz bu odanın hostusunuz", "room_name": room["room_name"]}
 
-    participants = room.get("participants", [])
-    if join_data.player_name in participants:
+    if await db.room_players.find_one({"room_code": room_code, "user_id": user["user_id"]}):
         return {"message": "Artıq odadasınız", "room_name": room["room_name"]}
 
-    participants.append(join_data.player_name)
     await db.rooms.update_one(
         {"room_code": room_code},
-        {"$set": {"participants": participants}}
+        {"$push": {"participants": user["nickname"]}}
     )
 
     player_stats = {
         "room_code": room_code,
-        "player_name": join_data.player_name,
+        "user_id": user["user_id"],
+        "player_name": user["nickname"],
         "total_points": 0,
         "games_won": 0,
         "games_played": 0,
@@ -290,17 +276,15 @@ async def close_room(room_code: str, host_code: str):
 
 
 @api_router.post("/rooms/{room_code}/guess")
-async def room_guess(room_code: str, guess_data: RoomGuess):
+async def room_guess(room_code: str, guess_data: RoomGuess, user: dict = Depends(get_player)):
     room = await db.rooms.find_one({"room_code": room_code})
     if not room:
         raise HTTPException(status_code=404, detail="Oda tapılmadı")
     if not room.get("game_active"):
         raise HTTPException(status_code=400, detail="Oyun aktiv deyil")
 
-    player = await db.room_players.find_one({
-        "room_code": room_code,
-        "player_name": guess_data.player_name
-    })
+    player_key = {"room_code": room_code, "user_id": user["user_id"]}
+    player = await db.room_players.find_one(player_key)
     if not player:
         raise HTTPException(status_code=404, detail="Oyunçu tapılmadı")
     if player.get("current_completed"):
@@ -328,7 +312,7 @@ async def room_guess(room_code: str, guess_data: RoomGuess):
     games_played = player.get("games_played", 0) + (1 if completed else 0)
 
     await db.room_players.update_one(
-        {"room_code": room_code, "player_name": guess_data.player_name},
+        player_key,
         {"$set": {
             "current_attempts": attempts,
             "current_completed": completed,
@@ -337,6 +321,19 @@ async def room_guess(room_code: str, guess_data: RoomGuess):
             "games_played": games_played
         }}
     )
+
+    if completed:
+        await db.room_results.insert_one({
+            "user_id": user["user_id"],
+            "room_code": room_code,
+            "room_name": room.get("room_name"),
+            "round_number": room.get("round_number"),
+            "won": won,
+            "attempts_count": len(attempts),
+            "points": points_earned,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        })
+        await award_points(user["user_id"], "room_points", points_earned)
 
     if won and room.get("settings", {}).get("game_mode") == "rush":
         await db.rooms.update_one(
@@ -369,11 +366,15 @@ async def get_room_players(room_code: str):
 
 # ==================== CHAT ====================
 @api_router.post("/chat/send")
-async def send_message(message_data: ChatMessage):
+async def send_message(message_data: ChatMessage, user: dict = Depends(get_player)):
+    text = message_data.message.strip()[:500]
+    if not text:
+        raise HTTPException(status_code=400, detail="Mesaj boşdur")
     message_dict = {
         "room_code": message_data.room_code,
-        "sender": message_data.sender,
-        "message": message_data.message,
+        "sender": user["nickname"],
+        "sender_user_id": user["user_id"],
+        "message": text,
         "timestamp": datetime.now(timezone.utc).isoformat()
     }
     await db.chat_messages.insert_one(message_dict)
@@ -388,12 +389,25 @@ async def get_chat_messages(room_code: str, limit: int = 50):
 
 # ==================== SOLO ====================
 @api_router.post("/solo/start")
-async def start_solo_game(game_data: SoloGameStart):
+async def start_solo_game(game_data: SoloGameStart, request: Request):
+    user = await get_optional_user(request)
+    if user:
+        # Signed-in players continue an unfinished game on any device
+        active = await db.solo_games.find_one(
+            {"user_id": user["user_id"], "completed": False}, {"_id": 0}, sort=[("created_at", -1)]
+        )
+        if active:
+            return {"game_id": active["game_id"], "attempts": active["attempts"], "message": "Oyun davam edir"}
+        player_name = user.get("nickname") or user.get("name")
+    else:
+        player_name = (game_data.player_name or "").strip() or "Qonaq"
+
     game_id = str(uuid.uuid4())
     word = get_random_word()
     game_dict = {
         "game_id": game_id,
-        "player_name": game_data.player_name,
+        "user_id": user["user_id"] if user else None,
+        "player_name": player_name,
         "word": word,
         "attempts": [],
         "completed": False,
@@ -402,7 +416,7 @@ async def start_solo_game(game_data: SoloGameStart):
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     await db.solo_games.insert_one(game_dict)
-    return {"game_id": game_id, "message": "Oyun başladı"}
+    return {"game_id": game_id, "attempts": [], "message": "Oyun başladı"}
 
 
 @api_router.post("/solo/guess")
@@ -452,28 +466,26 @@ async def get_daily_game_word():
 
 
 @api_router.post("/daily/guess")
-async def daily_game_guess(guess_data: DailyGuess):
+async def daily_game_guess(guess_data: DailyGuess, user: dict = Depends(get_player)):
     today = datetime.now(timezone.utc).date().isoformat()
     daily_word = get_daily_word()
 
     guess = dictionary_word(guess_data.guess)
 
-    player_daily = await db.daily_games.find_one({
-        "player_name": guess_data.player_name,
-        "date": today
-    })
+    daily_key = {"user_id": user["user_id"], "date": today}
+    player_daily = await db.daily_games.find_one(daily_key)
 
     if not player_daily:
         player_daily = {
-            "player_name": guess_data.player_name,
-            "date": today,
+            **daily_key,
+            "player_name": user["nickname"],
             "attempts": [],
             "completed": False,
             "won": False,
             "points": 0,
             "created_at": datetime.now(timezone.utc).isoformat()
         }
-        await db.daily_games.insert_one(player_daily)
+        await db.daily_games.insert_one(dict(player_daily))
 
     if player_daily.get("completed"):
         raise HTTPException(status_code=400, detail="Bu gün artıq oynadınız")
@@ -489,22 +501,15 @@ async def daily_game_guess(guess_data: DailyGuess):
 
     won = all(r == "correct" for r in result)
     completed = won or len(attempts) >= 6
-    points = calculate_points(len(attempts), True) if completed and won else 0
+    points = calculate_points(len(attempts), True) * DAILY_MULTIPLIER if completed and won else 0
 
     await db.daily_games.update_one(
-        {"player_name": guess_data.player_name, "date": today},
+        daily_key,
         {"$set": {"attempts": attempts, "completed": completed, "won": won, "points": points}}
     )
 
     if completed:
-        await db.daily_leaderboard.update_one(
-            {"player_name": guess_data.player_name},
-            {
-                "$inc": {"total_points": points, "games_played": 1},
-                "$push": {"games": {"date": today, "points": points, "won": won}}
-            },
-            upsert=True
-        )
+        await award_points(user["user_id"], "daily_points", points)
 
     return {
         "result": result,
@@ -525,9 +530,9 @@ async def get_daily_leaderboard():
 
 
 @api_router.get("/daily/status")
-async def get_daily_status(player_name: str):
+async def get_daily_status(user: dict = Depends(get_player)):
     today = datetime.now(timezone.utc).date().isoformat()
-    doc = await db.daily_games.find_one({"player_name": player_name, "date": today}, {"_id": 0})
+    doc = await db.daily_games.find_one({"user_id": user["user_id"], "date": today}, {"_id": 0})
     if not doc:
         return {"attempts": [], "completed": False, "won": False, "points": 0, "correct_word": None}
     return {
@@ -541,9 +546,8 @@ async def get_daily_status(player_name: str):
 
 # ==================== HOST PANEL ====================
 @api_router.get("/host/active-rooms")
-async def get_active_rooms(host_code: str):
-    if host_code != "Elnur":
-        raise HTTPException(status_code=403, detail="Yalnız host erişə bilər!")
+async def get_active_rooms(host_code: str, user: dict = Depends(get_player)):
+    check_host_code(host_code)
     rooms = await db.rooms.find({"status": "active"}, {"_id": 0}).sort("created_at", -1).to_list(100)
     for room in rooms:
         room["participant_count"] = len(room.get("participants", []))
@@ -551,9 +555,8 @@ async def get_active_rooms(host_code: str):
 
 
 @api_router.get("/host/room-history")
-async def get_room_history(host_code: str):
-    if host_code != "Elnur":
-        raise HTTPException(status_code=403, detail="Yalnız host erişə bilər!")
+async def get_room_history(host_code: str, user: dict = Depends(get_player)):
+    check_host_code(host_code)
     rooms = await db.rooms.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
     for room in rooms:
         players = await db.room_players.find({"room_code": room["room_code"]}, {"_id": 0}).to_list(100)
@@ -562,9 +565,8 @@ async def get_room_history(host_code: str):
 
 
 @api_router.get("/host/game-history")
-async def get_game_history(host_code: str):
-    if host_code != "Elnur":
-        raise HTTPException(status_code=403, detail="Yalnız host erişə bilər!")
+async def get_game_history(host_code: str, user: dict = Depends(get_player)):
+    check_host_code(host_code)
     solo_games = await db.solo_games.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
     daily_games = await db.daily_games.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
     return {"solo_games": solo_games, "daily_games": daily_games}
@@ -583,8 +585,9 @@ async def validate_word_endpoint(word: str):
     return {"valid": is_valid, "word": az_upper(word)}
 
 
-# Include the router in the main app
+# Include the routers in the main app
 app.include_router(api_router)
+app.include_router(auth_router)
 
 app.add_middleware(
     CORSMiddleware,

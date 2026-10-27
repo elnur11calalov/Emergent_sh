@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { useParams, useLocation, useNavigate } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
+import { useAuth } from "../lib/auth";
 import axios from "axios";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -14,6 +15,7 @@ import { playSound, playKeySound, playResultSound } from "../lib/sounds";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const POLL_MS = 2000;
+const HOST_CODE = "Elnur";
 
 const TABS = [
   { id: "game", label: "Oyun", icon: Play },
@@ -40,17 +42,11 @@ const MiniAttempts = ({ attempts, size = "w-6 h-6" }) => (
 
 const RoomView = () => {
   const { roomCode } = useParams();
-  const location = useLocation();
   const navigate = useNavigate();
-
-  // Identity survives page reloads via sessionStorage
-  const storageKey = `room:${roomCode}`;
-  const identity = location.state?.playerName
-    ? location.state
-    : JSON.parse(sessionStorage.getItem(storageKey) || "null") || {};
-  const playerName = identity.playerName;
-  const isHost = identity.isHost === true;
-  const hostCode = identity.hostCode || "";
+  // Identity comes from the signed-in account, so it works on any device
+  const { user } = useAuth();
+  const playerName = user.nickname;
+  const hostCode = HOST_CODE;
 
   const [room, setRoom] = useState(null);
   const [players, setPlayers] = useState([]);
@@ -63,6 +59,7 @@ const RoomView = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [gameMode, setGameMode] = useState("standard");
   const [timeLimit, setTimeLimit] = useState("");
+  const isHost = room?.host_user_id === user.user_id;
 
   const { mood, react: kidReact, reset: kidReset } = useKidMood();
   const chatEndRef = useRef(null);
@@ -70,13 +67,10 @@ const RoomView = () => {
   const prevMsgCountRef = useRef(null);
   const submittingRef = useRef(false);
 
+  // Opening a room link directly (or on another device) joins it automatically
   useEffect(() => {
-    if (!playerName) {
-      navigate('/join-room');
-      return;
-    }
-    sessionStorage.setItem(storageKey, JSON.stringify({ playerName, isHost, hostCode }));
-  }, [playerName, isHost, hostCode, storageKey, navigate]);
+    axios.post(`${API}/rooms/${roomCode}/join`, { room_code: roomCode }).catch(() => {});
+  }, [roomCode]);
 
   const refresh = useCallback(async () => {
     try {
@@ -87,7 +81,6 @@ const RoomView = () => {
         axios.get(`${API}/chat/${roomCode}`)
       ]);
       if (r.data.status === "closed") {
-        sessionStorage.removeItem(storageKey);
         toast.info(isHost ? "Bu oda bağlanıb" : "Host odanı bağladı");
         navigate('/');
         return;
@@ -97,7 +90,7 @@ const RoomView = () => {
       setLeaderboard(l.data);
       setMessages(c.data);
       const last = c.data[c.data.length - 1];
-      if (prevMsgCountRef.current !== null && c.data.length > prevMsgCountRef.current && last?.sender !== playerName) playSound("message");
+      if (prevMsgCountRef.current !== null && c.data.length > prevMsgCountRef.current && last?.sender_user_id !== user.user_id) playSound("message");
       prevMsgCountRef.current = c.data.length;
       if (r.data.round_number !== prevRoundRef.current) {
         if (prevRoundRef.current !== null && r.data.game_active) playSound("start");
@@ -111,7 +104,7 @@ const RoomView = () => {
         navigate('/');
       }
     }
-  }, [roomCode, navigate, kidReset, isHost, storageKey, playerName]);
+  }, [roomCode, navigate, kidReset, isHost, user.user_id]);
 
   useEffect(() => {
     refresh();
@@ -123,7 +116,7 @@ const RoomView = () => {
     if (activeTab === "chat") chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, activeTab]);
 
-  const me = players.find((p) => p.player_name === playerName);
+  const me = players.find((p) => p.user_id === user.user_id);
   const myAttempts = me?.current_attempts || [];
   // Keyboard colors are derived from server attempts, so they survive reloads
   const usedLetters = useMemo(
@@ -142,7 +135,7 @@ const RoomView = () => {
       return;
     }
     try {
-      const res = await axios.post(`${API}/rooms/${roomCode}/guess`, { room_code: roomCode, player_name: playerName, guess: currentGuess });
+      const res = await axios.post(`${API}/rooms/${roomCode}/guess`, { room_code: roomCode, guess: currentGuess });
       const { result, won, completed, points_earned } = res.data;
       setCurrentGuess("");
       kidReact(result, won, completed);
@@ -153,7 +146,7 @@ const RoomView = () => {
       playSound("error");
       toast.error(e.response?.data?.detail || "Xəta baş verdi");
     }
-  }, [currentGuess, roomCode, playerName, kidReact, refresh]);
+  }, [currentGuess, roomCode, kidReact, refresh]);
 
   const handleKeyPress = useCallback((key) => {
     if (!canType) return;
@@ -182,7 +175,7 @@ const RoomView = () => {
   const sendChatMessage = async () => {
     if (!chatInput.trim()) return;
     try {
-      await axios.post(`${API}/chat/send`, { room_code: roomCode, sender: playerName, message: chatInput.trim(), timestamp: new Date().toISOString() });
+      await axios.post(`${API}/chat/send`, { room_code: roomCode, message: chatInput.trim() });
       setChatInput("");
       refresh();
     } catch (e) {
@@ -313,7 +306,7 @@ const RoomView = () => {
               </div>
             )}
             {activeTab === "chat" && (
-              <ChatPanel messages={messages} playerName={playerName} chatInput={chatInput} setChatInput={setChatInput} onSend={sendChatMessage} endRef={chatEndRef} />
+              <ChatPanel messages={messages} userId={user.user_id} chatInput={chatInput} setChatInput={setChatInput} onSend={sendChatMessage} endRef={chatEndRef} />
             )}
             {activeTab === "leaderboard" && <LeaderboardPanel leaderboard={leaderboard} />}
           </div>
@@ -344,13 +337,13 @@ const RoomView = () => {
   );
 };
 
-const ChatPanel = ({ messages, playerName, chatInput, setChatInput, onSend, endRef }) => (
+const ChatPanel = ({ messages, userId, chatInput, setChatInput, onSend, endRef }) => (
   <div className="bg-indigo-950/30 backdrop-blur-md border border-indigo-500/20 rounded-2xl p-4 flex flex-col h-[600px]">
     <h3 className="text-white font-bold mb-3 flex items-center gap-2"><MessageCircle className="w-5 h-5" /> Otaq Çatı</h3>
     <div className="flex-1 overflow-y-auto space-y-2 mb-3 pr-2" data-testid="chat-messages">
       {messages.length === 0 && <p className="text-white/40 text-center text-sm">Hələ mesaj yoxdur</p>}
       {messages.map((m, i) => {
-        const mine = m.sender === playerName;
+        const mine = m.sender_user_id === userId;
         return (
           <div key={`${m.timestamp}-${i}`} className={`flex ${mine ? 'justify-end' : 'justify-start'}`} data-testid="chat-message">
             <div className={`max-w-[75%] rounded-2xl px-3 py-2 text-white ${mine ? 'bg-gradient-to-r from-indigo-600 to-purple-600' : 'bg-white/10'}`}>
