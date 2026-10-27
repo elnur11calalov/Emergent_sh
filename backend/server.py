@@ -201,7 +201,7 @@ async def require_room_host(room_code: str, host_code: str, user: dict) -> dict:
     if not room:
         raise HTTPException(status_code=404, detail="Oda tapılmadı")
     check_host_code(host_code)
-    if room.get("host_user_id") and room["host_user_id"] != user["user_id"]:
+    if room.get("host_user_id") != user["user_id"]:
         raise HTTPException(status_code=403, detail="Yalnız odanın hostu bunu edə bilər!")
     return room
 
@@ -348,17 +348,31 @@ async def room_guess(room_code: str, guess_data: RoomGuess, user: dict = Depends
     }
 
 
-@api_router.get("/rooms/{room_code}/leaderboard")
-async def get_room_leaderboard(room_code: str):
+async def visible_room_players(room_code: str, request: Request) -> list:
+    room = await db.rooms.find_one({"room_code": room_code}, {"host_user_id": 1, "game_active": 1})
     players = await db.room_players.find({"room_code": room_code}, {"_id": 0}).to_list(100)
+    user = await get_optional_user(request)
+    viewer_id = user["user_id"] if user else None
+    if room and room.get("game_active") and viewer_id != room.get("host_user_id"):
+        # Hide other players' letters during an active round
+        for p in players:
+            if p.get("user_id") != viewer_id:
+                p["current_attempts"] = [
+                    {**a, "guess": " " * len(a.get("guess", ""))} for a in p.get("current_attempts", [])
+                ]
+    return players
+
+
+@api_router.get("/rooms/{room_code}/leaderboard")
+async def get_room_leaderboard(room_code: str, request: Request):
+    players = await visible_room_players(room_code, request)
     players.sort(key=lambda x: (-x.get("total_points", 0), x.get("joined_at", "")))
     return players
 
 
 @api_router.get("/rooms/{room_code}/players")
-async def get_room_players(room_code: str):
-    players = await db.room_players.find({"room_code": room_code}, {"_id": 0}).to_list(100)
-    return players
+async def get_room_players(room_code: str, request: Request):
+    return await visible_room_players(room_code, request)
 
 
 # ==================== CHAT ====================
@@ -536,6 +550,8 @@ async def daily_game_guess(guess_data: DailyGuess, user: dict = Depends(get_play
 async def get_daily_leaderboard():
     today = datetime.now(timezone.utc).date().isoformat()
     players = await db.daily_games.find({"date": today, "completed": True}, {"_id": 0}).to_list(100)
+    for p in players:
+        p["attempts_count"] = len(p.pop("attempts", []))
     players.sort(key=lambda x: (-x.get("points", 0), x.get("created_at", "")))
     return players[:50]
 
@@ -559,18 +575,27 @@ async def get_daily_status(user: dict = Depends(get_player)):
 @api_router.get("/host/active-rooms")
 async def get_active_rooms(host_code: str, user: dict = Depends(get_player)):
     check_host_code(host_code)
-    rooms = await db.rooms.find({"status": "active"}, {"_id": 0}).sort("created_at", -1).to_list(100)
+    rooms = await db.rooms.find({"status": "active"}, {"_id": 0, "host_code": 0}).sort("created_at", -1).to_list(100)
     for room in rooms:
         room["participant_count"] = len(room.get("participants", []))
+        if room.get("host_user_id") != user["user_id"]:
+            room.pop("current_word", None)
     return rooms
 
 
 @api_router.get("/host/room-history")
 async def get_room_history(host_code: str, user: dict = Depends(get_player)):
     check_host_code(host_code)
-    rooms = await db.rooms.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    rooms = await db.rooms.find({}, {"_id": 0, "host_code": 0}).sort("created_at", -1).to_list(500)
     for room in rooms:
         players = await db.room_players.find({"room_code": room["room_code"]}, {"_id": 0}).to_list(100)
+        if room.get("host_user_id") != user["user_id"]:
+            room.pop("current_word", None)
+            if room.get("game_active"):
+                for p in players:
+                    p["current_attempts"] = [
+                        {**a, "guess": " " * len(a.get("guess", ""))} for a in p.get("current_attempts", [])
+                    ]
         room["players"] = players
     return rooms
 
@@ -579,7 +604,15 @@ async def get_room_history(host_code: str, user: dict = Depends(get_player)):
 async def get_game_history(host_code: str, user: dict = Depends(get_player)):
     check_host_code(host_code)
     solo_games = await db.solo_games.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    for g in solo_games:
+        if not g.get("completed"):
+            g["word"] = "?????"
+            g["attempts"] = [{**a, "guess": " " * len(a.get("guess", ""))} for a in g.get("attempts", [])]
+    today = datetime.now(timezone.utc).date().isoformat()
     daily_games = await db.daily_games.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    for g in daily_games:
+        if g.get("date") == today:
+            g["attempts"] = [{**a, "guess": " " * len(a.get("guess", ""))} for a in g.get("attempts", [])]
     return {"solo_games": solo_games, "daily_games": daily_games}
 
 

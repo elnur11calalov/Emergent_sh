@@ -1,0 +1,49 @@
+{
+  "summary": "Re-tested the security fixes (iteration 5). All requested fixes work: GET /api/rooms/{code} sends current_word only to the host (by Bearer or cookie) and never sends host_code. Anonymous users and players get no word. Host-only endpoints (set-word, start-game, end-round, close, settings) return 401 without login, 403 for a non-host and 403 for a wrong host code, and rejected calls leave the room unchanged. Chat send returns 401 without login and 403 for a non-member, and works for the host and joined players. Solo guess on another user's game returns 403 for another user and for anonymous callers. /daily/word, /daily/status and /daily/guess hide the word until the game is finished. Regressions pass: daily points are doubled (1st try=5000, 2nd try=3600) and added to total_points, room points add up on the overall leaderboard, and rush mode works. Updated the 7 old failing tests to send the host session (the chat test now joins the room first). Added tests/test_security_fixes.py. Result: 51/54 pass. The 3 failures are NEW word-leak paths that the fix does not cover. Frontend smoke: the host sees data-testid=current-word, the player does not (word not in page text), a player win shows a '+2500 xal' toast, and the chat tab renders.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "GET /api/daily/leaderboard", "issue": "Public, no auth. It returns full 'attempts' arrays for players who finished. A winner's last guess IS the daily word, so anyone can read today's word before playing. This bypasses the /daily/status fix.", "priority": "HIGH"},
+      {"endpoint": "GET /api/rooms/{code}/players and /api/rooms/{code}/leaderboard", "issue": "Public. They return each player's current_attempts (guess and result) during an active round. Once someone wins, the room word is visible to every other player. RoomView.jsx L79 polls this endpoint.", "priority": "HIGH"},
+      {"endpoint": "GET /api/host/active-rooms, /api/host/room-history", "issue": "These return current_word and host_code for ALL rooms. They are gated only by login and host_code 'Elnur', which is hardcoded in the frontend bundle (CreateRoom.jsx, RoomView.jsx, HostPanel.jsx). So any signed-in user can read every room's word.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "require_room_host (server.py L204)", "issue": "Rooms with no host_user_id (legacy rooms) skip the owner check, so any logged-in user can control them."},
+      {"endpoint": "GET /api/chat/{room_code}", "issue": "Room chat can be read without login or membership. Only sending requires membership."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_security_fixes.py",
+    "/app/backend/tests/test_accounts.py",
+    "/app/backend/tests/test_accounts_extended.py",
+    "/app/backend/tests/test_dictionary_and_guess.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "/api/daily/leaderboard: return only player_name, points, won, attempts_count and created_at, or return the result colors without the 'guess' letters. Do not return the guess strings.",
+    "/api/rooms/{code}/players and /leaderboard: hide other players' guess letters while the round is active. Return only attempts count, completed and points, or result colors only. Return the full data only to the host.",
+    "/api/host/active-rooms and /room-history: project out current_word and host_code, or limit results to rooms where host_user_id == the caller. The host code is public in the JS bundle, so it is not a real secret.",
+    "require_room_host: deny when host_user_id is missing, or migrate legacy rooms."
+  ],
+  "critical_code_review_comments": [
+    "HOST_CODE 'Elnur' is a client-side constant in 3 frontend files, so check_host_code gives no real protection. Ownership checks (host_user_id) are the real control.",
+    "server.py is 628 lines and close to the 700-line limit. Consider splitting it into rooms, daily and solo routers.",
+    "Solo game: the word is stored server-side and correct_word is returned only on completion, which is good."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_dictionary_and_guess.py",
+    "/app/backend/tests/test_accounts.py",
+    "/app/backend/tests/test_accounts_extended.py",
+    "/app/backend/tests/test_security_fixes.py"
+  ],
+  "success_rate": {"backend": "94% (51/54; the 3 failures are new leak paths)", "frontend": "100%"},
+  "seed_data_creation": "Test users are created with conftest.make_user and cleaned up when the session ends. The frontend smoke users and room were deleted manually.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run: export REACT_APP_BACKEND_URL=$(grep REACT_APP_BACKEND_URL /app/frontend/.env | cut -d= -f2); cd /app/backend && python -m pytest tests -q. The 3 tests at the end of test_security_fixes.py (daily_leaderboard_leaks, room_players_leaks, host_active_rooms_exposes) should pass once the leaks are fixed. For browser tests, set the session_token cookie (secure, sameSite=None) on the preview domain.",
+  "rca of the issue": "The fix removed the word from the direct endpoints but missed the indirect ones. Endpoints that return raw attempt arrays (daily leaderboard, room players and leaderboard) show the winning guess, which equals the word. The host-panel endpoints return the raw room documents, and their only gate is a host code that is shipped in the frontend bundle."
+}

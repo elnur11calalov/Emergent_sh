@@ -104,31 +104,35 @@ def players():
 
 
 @pytest.fixture(scope="module")
-def room(s, players):
-    _, host = make_user(f"TEST_H{uuid.uuid4().hex[:5]}")
+def host():
+    return make_user(f"TEST_H{uuid.uuid4().hex[:5]}")[1]
+
+
+@pytest.fixture(scope="module")
+def room(s, players, host):
     r = s.post(f"{BASE_URL}/api/rooms/create", json={"room_name": "TEST_dict_room", "host_code": HOST}, headers=host)
     assert r.status_code == 200
     code = r.json()["room_code"]
     for h in players:
         assert s.post(f"{BASE_URL}/api/rooms/{code}/join", json={"room_code": code}, headers=h).status_code == 200
     yield code
-    s.post(f"{BASE_URL}/api/rooms/{code}/close", params={"host_code": HOST})
+    s.post(f"{BASE_URL}/api/rooms/{code}/close", params={"host_code": HOST}, headers=host)
 
 
-def test_set_word_invalid(s, room):
-    r = s.post(f"{BASE_URL}/api/rooms/{room}/set-word", params={"word": "QQQQQ", "host_code": HOST})
+def test_set_word_invalid(s, room, host):
+    r = s.post(f"{BASE_URL}/api/rooms/{room}/set-word", params={"word": "QQQQQ", "host_code": HOST}, headers=host)
     assert r.status_code == 400 and r.json()["detail"] == NOT_IN_DICT
-    r = s.post(f"{BASE_URL}/api/rooms/{room}/set-word", params={"word": "abc", "host_code": HOST})
+    r = s.post(f"{BASE_URL}/api/rooms/{room}/set-word", params={"word": "abc", "host_code": HOST}, headers=host)
     assert r.status_code == 400 and r.json()["detail"] == WRONG_LEN
 
 
-def test_room_lowercase_word_win(s, room, words, players):
+def test_room_lowercase_word_win(s, room, words, players, host):
     p1, p2 = players
     target = words[2]
-    r = s.post(f"{BASE_URL}/api/rooms/{room}/set-word", params={"word": az_lower(target), "host_code": HOST})
+    r = s.post(f"{BASE_URL}/api/rooms/{room}/set-word", params={"word": az_lower(target), "host_code": HOST}, headers=host)
     assert r.status_code == 200
-    assert s.get(f"{BASE_URL}/api/rooms/{room}").json()["current_word"] == target
-    assert s.post(f"{BASE_URL}/api/rooms/{room}/start-game", params={"host_code": HOST}).status_code == 200
+    assert s.get(f"{BASE_URL}/api/rooms/{room}", headers=host).json()["current_word"] == target
+    assert s.post(f"{BASE_URL}/api/rooms/{room}/start-game", params={"host_code": HOST}, headers=host).status_code == 200
     # invalid guess doesn't consume attempt
     r = s.post(f"{BASE_URL}/api/rooms/{room}/guess", json={"room_code": room, "guess": "QQQQQ"}, headers=p1)
     assert r.status_code == 400 and r.json()["detail"] == NOT_IN_DICT
@@ -140,6 +144,6 @@ def test_room_lowercase_word_win(s, room, words, players):
     r = s.post(f"{BASE_URL}/api/rooms/{room}/guess", json={"room_code": room, "guess": mixed(target)}, headers=p2)
     assert r.status_code == 200 and r.json()["won"] is True and r.json()["points_earned"] == 2500
     me = s.get(f"{BASE_URL}/api/auth/me", headers=p1).json()
-    p1_row = next(p for p in s.get(f"{BASE_URL}/api/rooms/{room}/players").json() if p["user_id"] == me["user_id"])
+    p1_row = next(p for p in s.get(f"{BASE_URL}/api/rooms/{room}/players", headers=p1).json() if p["user_id"] == me["user_id"])
     assert len(p1_row["current_attempts"]) == 1
     assert p1_row["current_attempts"][0]["guess"] == target

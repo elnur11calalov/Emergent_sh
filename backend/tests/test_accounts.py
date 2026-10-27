@@ -51,8 +51,8 @@ def test_room_points_accumulate_and_overall_leaderboard():
     code = requests.post(f"{BASE_URL}/rooms/create", json={"room_name": "TEST_room", "host_code": "Elnur"}, headers=hh).json()["room_code"]
     assert requests.post(f"{BASE_URL}/rooms/{code}/join", json={"room_code": code}, headers=ph).status_code == 200
     word = requests.get(f"{BASE_URL}/words/random?count=1").json()["words"][0]
-    requests.post(f"{BASE_URL}/rooms/{code}/set-word", params={"word": word, "host_code": "Elnur"})
-    requests.post(f"{BASE_URL}/rooms/{code}/start-game", params={"host_code": "Elnur"})
+    requests.post(f"{BASE_URL}/rooms/{code}/set-word", params={"word": word, "host_code": "Elnur"}, headers=hh)
+    requests.post(f"{BASE_URL}/rooms/{code}/start-game", params={"host_code": "Elnur"}, headers=hh)
     r = requests.post(f"{BASE_URL}/rooms/{code}/guess", json={"room_code": code, "guess": word}, headers=ph).json()
     assert r["won"] and r["points_earned"] == 2500
     me = requests.get(f"{BASE_URL}/auth/me", headers=ph).json()
@@ -70,7 +70,7 @@ def test_room_points_accumulate_and_overall_leaderboard():
 
     room = requests.get(f"{BASE_URL}/rooms/{code}").json()
     assert room["host_user_id"] == host_id
-    requests.post(f"{BASE_URL}/rooms/{code}/close", params={"host_code": "Elnur"})
+    requests.post(f"{BASE_URL}/rooms/{code}/close", params={"host_code": "Elnur"}, headers=hh)
 
 
 def test_host_panel_needs_login_and_code():

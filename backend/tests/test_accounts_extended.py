@@ -34,9 +34,9 @@ def _new_room(hh):
     return r.json()["room_code"]
 
 
-def _start(code, word):
-    assert requests.post(f"{BASE_URL}/rooms/{code}/set-word", params={"word": word, "host_code": H}).status_code == 200
-    assert requests.post(f"{BASE_URL}/rooms/{code}/start-game", params={"host_code": H}).status_code == 200
+def _start(code, word, hh):
+    assert requests.post(f"{BASE_URL}/rooms/{code}/set-word", params={"word": word, "host_code": H}, headers=hh).status_code == 200
+    assert requests.post(f"{BASE_URL}/rooms/{code}/start-game", params={"host_code": H}, headers=hh).status_code == 200
 
 
 # --- Auth: cookie + bearer, logout, invalid session, expired session
@@ -119,15 +119,15 @@ def test_daily_plus_two_rooms_accumulate():
 
     # round 1: win on 2nd try (1800)
     word = _random_word()
-    _start(code, word)
+    _start(code, word, hh)
     wrong = next(x for x in requests.get(f"{BASE_URL}/words/random?count=10").json()["words"] if x != word)
     requests.post(f"{BASE_URL}/rooms/{code}/guess", json={"room_code": code, "guess": wrong}, headers=ph)
     r1 = requests.post(f"{BASE_URL}/rooms/{code}/guess", json={"room_code": code, "guess": word}, headers=ph).json()
     assert r1["won"] and r1["points_earned"] == 1800
-    requests.post(f"{BASE_URL}/rooms/{code}/end-round", params={"host_code": H})
+    requests.post(f"{BASE_URL}/rooms/{code}/end-round", params={"host_code": H}, headers=hh)
     # round 2: win on 1st try (2500)
     word2 = _random_word()
-    _start(code, word2)
+    _start(code, word2, hh)
     r2 = requests.post(f"{BASE_URL}/rooms/{code}/guess", json={"room_code": code, "guess": word2}, headers=ph).json()
     assert r2["points_earned"] == 2500 and r2["total_points"] == 4300
 
@@ -142,7 +142,7 @@ def test_daily_plus_two_rooms_accumulate():
     assert prof["rank"] >= 1 and len(prof["recent"]) == 3
     # host does not get a player row
     assert requests.post(f"{BASE_URL}/rooms/{code}/join", json={"room_code": code}, headers=hh).json()["message"] == "Siz bu odanın hostusunuz"
-    requests.post(f"{BASE_URL}/rooms/{code}/close", params={"host_code": H})
+    requests.post(f"{BASE_URL}/rooms/{code}/close", params={"host_code": H}, headers=hh)
     assert requests.post(f"{BASE_URL}/rooms/{code}/join", json={"room_code": code}, headers=ph).status_code == 410
 
 
@@ -152,12 +152,15 @@ def test_chat_sender_fields():
     _, hh = make_user(_nick())
     code = _new_room(hh)
     nick = requests.get(f"{BASE_URL}/auth/me", headers=h).json()["nickname"]
+    # chat requires membership (host or joined player)
+    assert requests.post(f"{BASE_URL}/chat/send", json={"room_code": code, "message": "x"}, headers=h).status_code == 403
+    requests.post(f"{BASE_URL}/rooms/{code}/join", json={"room_code": code}, headers=h)
     assert requests.post(f"{BASE_URL}/chat/send", json={"room_code": code, "message": "salam"}, headers=h).status_code == 200
     msgs = requests.get(f"{BASE_URL}/chat/{code}").json()
     assert msgs[-1]["sender"] == nick and msgs[-1]["sender_user_id"] == uid
     assert requests.post(f"{BASE_URL}/chat/send", json={"room_code": code, "message": "   "}, headers=h).status_code == 400
     mongo.chat_messages.delete_many({"room_code": code})
-    requests.post(f"{BASE_URL}/rooms/{code}/close", params={"host_code": H})
+    requests.post(f"{BASE_URL}/rooms/{code}/close", params={"host_code": H}, headers=hh)
 
 
 # --- Solo points do not count to account
@@ -187,12 +190,12 @@ def test_rush_mode():
     _, ph = make_user(_nick())
     code = _new_room(hh)
     requests.post(f"{BASE_URL}/rooms/{code}/join", json={"room_code": code}, headers=ph)
-    requests.post(f"{BASE_URL}/rooms/{code}/settings", params={"host_code": H}, json={"game_mode": "rush"})
+    requests.post(f"{BASE_URL}/rooms/{code}/settings", params={"host_code": H}, json={"game_mode": "rush"}, headers=hh)
     w = _random_word()
-    _start(code, w)
+    _start(code, w, hh)
     requests.post(f"{BASE_URL}/rooms/{code}/guess", json={"room_code": code, "guess": w}, headers=ph)
     assert requests.get(f"{BASE_URL}/rooms/{code}").json()["game_active"] is False
-    requests.post(f"{BASE_URL}/rooms/{code}/close", params={"host_code": H})
+    requests.post(f"{BASE_URL}/rooms/{code}/close", params={"host_code": H}, headers=hh)
 
 
 # --- Security observation: room GET exposes the secret word to players
@@ -200,7 +203,7 @@ def test_room_get_does_not_leak_word():
     _, hh = make_user(_nick())
     code = _new_room(hh)
     w = _random_word()
-    _start(code, w)
+    _start(code, w, hh)
     room = requests.get(f"{BASE_URL}/rooms/{code}").json()
-    requests.post(f"{BASE_URL}/rooms/{code}/close", params={"host_code": H})
+    requests.post(f"{BASE_URL}/rooms/{code}/close", params={"host_code": H}, headers=hh)
     assert room.get("current_word") != w, "current_word is publicly visible via GET /api/rooms/{code}"

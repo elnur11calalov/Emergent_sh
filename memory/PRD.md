@@ -43,3 +43,11 @@ Other requirements: Azerbaijani keyboard (Ə Ç Ş Ğ Ö Ü İ I), chat in rooms
 - P2: The host code is hardcoded in the frontend (the user asked for this), and the host code is sent in query params.
 - P2: No mute button for sounds.
 - P2: Use WebSockets instead of polling; split server.py into routers.
+
+## 2026-06 Security fixes
+- Target word hidden from players: GET /rooms/{code} (host only), daily status/guess (only after finish), daily leaderboard (attempts_count only), room players/leaderboard (other players letters masked during active round), host panel (current_word only for own rooms, active solo / today daily masked).
+- Host room controls require login + room ownership + code Elnur. Chat send requires membership. Solo guess ownership check.
+- Backend tests: 54/54 pass (tests/test_security_fixes.py added).
+
+## Backlog
+- P2: Chat read requires membership; nickname change sync to old records; split server.py into routers.
