@@ -45,7 +45,10 @@ const Home = () => {
   const { user } = useAuth();
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-950 flex items-center justify-center p-4 pt-20">
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-950 flex items-center justify-center p-4 pt-20">z
+      <div className="fixed top-4 left-4 z-30 text-white/90 font-semibold text-sm sm:text-base tracking-wide">
+        Salam by
+      </div>
       <div className="fixed top-4 right-4 z-30"><UserBar /></div>
       <div className="max-w-6xl w-full">
         <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="text-center mb-16">
